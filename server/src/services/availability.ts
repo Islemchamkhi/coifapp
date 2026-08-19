@@ -2,7 +2,6 @@ import { db } from "../db.js";
 import { Appointment } from "../types.js";
 import {
   WORK_WINDOWS,
-  SLOT_STEP_MINUTES,
   BOOKING_MIN_LEAD_MINUTES,
   isClosedDay,
   toMinutes,
@@ -21,8 +20,10 @@ export interface BusySlot {
  * Retourne les créneaux occupés par un coiffeur pour une date donnée.
  *
  * IMPORTANT :
- * Un rendez-vous confirmé reste occupé même lorsque son heure est passée.
- * Il n'est jamais supprimé automatiquement.
+ * - Le planning est indépendant pour chaque coiffeur.
+ * - Un rendez-vous d'Abdou ne bloque jamais automatiquement Rayen.
+ * - Un rendez-vous confirmé reste occupé même lorsque son heure est passée.
+ * - Les rendez-vous bloqués sont également considérés comme occupés.
  */
 export function getBusySlotsForStaffDate(
   staffId: number,
@@ -48,18 +49,38 @@ export function getBusySlotsForStaffDate(
 }
 
 /**
+ * Retourne le pas entre deux créneaux.
+ *
+ * Le pas dépend directement de la durée du service :
+ *
+ * - 20 min -> 20 min
+ * - 30 min -> 30 min
+ * - 45 min -> 45 min
+ * - 60 min -> 60 min
+ *
+ * Cela permet d'avoir des horaires cohérents avec le service choisi.
+ */
+function getSlotStepMinutes(durationMinutes: number): number {
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    return 10;
+  }
+
+  return Math.floor(durationMinutes);
+}
+
+/**
  * Calcule les créneaux disponibles pour un client.
  *
  * Règles :
  * - Un jour fermé ne propose aucun créneau.
  * - Une date passée ne propose aucun créneau.
- * - Aujourd'hui, les créneaux déjà passés ne sont pas proposés.
+ * - Aujourd'hui, les créneaux déjà passés ou trop proches ne sont pas proposés.
  * - BOOKING_MIN_LEAD_MINUTES est respecté.
- * - Les rendez-vous existants bloquent leur période.
+ * - Les rendez-vous existants du coiffeur sélectionné bloquent leur période.
+ * - Le pas entre deux créneaux correspond à la durée du service.
  *
  * IMPORTANT :
  * Cette fonction ne modifie JAMAIS la base de données.
- * Elle ne supprime et n'annule aucun rendez-vous.
  */
 export function computeAvailableSlots(
   staffId: number,
@@ -77,6 +98,8 @@ export function computeAvailableSlots(
     return [];
   }
 
+  // IMPORTANT :
+  // On récupère uniquement les rendez-vous du coiffeur sélectionné.
   const busy = getBusySlotsForStaffDate(staffId, date);
 
   const isToday = date === today;
@@ -89,21 +112,26 @@ export function computeAvailableSlots(
 
   const slots: string[] = [];
 
+  // Le pas dépend de la durée du service.
+  const slotStepMinutes =
+    getSlotStepMinutes(durationMinutes);
+
   for (const window of WORK_WINDOWS) {
     for (
       let start = window.start;
       start + durationMinutes <= window.end;
-      start += SLOT_STEP_MINUTES
+      start += slotStepMinutes
     ) {
       // Pour aujourd'hui :
-      // on empêche uniquement les NOUVELLES réservations
-      // sur les horaires trop proches ou déjà passés.
+      // empêcher les nouvelles réservations trop proches
+      // ou déjà passées.
       if (isToday && start < minimumStart) {
         continue;
       }
 
       const end = start + durationMinutes;
 
+      // Vérification sur TOUTE la durée du service.
       const conflict = busy.some((busySlot) =>
         overlaps(
           start,
@@ -130,20 +158,31 @@ export interface SlotWithStatus {
 }
 
 /**
- * Calcule TOUS les créneaux valides de la journée (disponibles ET réservés),
- * pour affichage côté client.
+ * Calcule TOUS les créneaux valides de la journée
+ * (disponibles ET réservés), pour affichage côté client.
  *
- * Différence avec computeAvailableSlots :
- * - computeAvailableSlots ne renvoie QUE les créneaux libres.
- * - computeSlotsWithStatus renvoie aussi les créneaux occupés par un
- *   rendez-vous existant, avec le statut "booked", SANS jamais exposer
- *   d'information sur le client qui a réservé (nom, téléphone, etc.) :
- *   seules les heures de début/fin sont utilisées (cf. getBusySlotsForStaffDate).
+ * IMPORTANT :
+ * - Les rendez-vous sont calculés uniquement pour le coiffeur sélectionné.
+ * - La durée du service détermine le pas entre les créneaux.
+ * - Les informations privées du client ne sont jamais exposées.
  *
- * Les règles de fenêtre horaire, jour fermé, date passée et délai minimum
- * pour aujourd'hui restent identiques à computeAvailableSlots : un créneau
- * déjà passé aujourd'hui n'est pas affiché (il ne serait de toute façon
- * plus réservable), qu'il soit occupé ou non.
+ * Exemple avec un service de 60 minutes :
+ *
+ * 09:00
+ * 10:00
+ * 11:00
+ * 12:00
+ * 14:00
+ * 15:00
+ * ...
+ *
+ * Exemple avec un service de 20 minutes :
+ *
+ * 09:00
+ * 09:20
+ * 09:40
+ * 10:00
+ * ...
  */
 export function computeSlotsWithStatus(
   staffId: number,
@@ -160,6 +199,8 @@ export function computeSlotsWithStatus(
     return [];
   }
 
+  // IMPORTANT :
+  // Seuls les rendez-vous de CE coiffeur sont pris en compte.
   const busy = getBusySlotsForStaffDate(staffId, date);
 
   const isToday = date === today;
@@ -167,15 +208,20 @@ export function computeSlotsWithStatus(
   const now = nowInSalonTz();
   const nowMinutes = now.hour() * 60 + now.minute();
 
-  const minimumStart = nowMinutes + BOOKING_MIN_LEAD_MINUTES;
+  const minimumStart =
+    nowMinutes + BOOKING_MIN_LEAD_MINUTES;
 
   const result: SlotWithStatus[] = [];
+
+  // Le pas dépend de la durée du service sélectionné.
+  const slotStepMinutes =
+    getSlotStepMinutes(durationMinutes);
 
   for (const window of WORK_WINDOWS) {
     for (
       let start = window.start;
       start + durationMinutes <= window.end;
-      start += SLOT_STEP_MINUTES
+      start += slotStepMinutes
     ) {
       if (isToday && start < minimumStart) {
         continue;
@@ -183,8 +229,15 @@ export function computeSlotsWithStatus(
 
       const end = start + durationMinutes;
 
+      // Le créneau est réservé si la durée complète
+      // du nouveau service chevauche un rendez-vous existant.
       const conflict = busy.some((busySlot) =>
-        overlaps(start, end, busySlot.start, busySlot.end)
+        overlaps(
+          start,
+          end,
+          busySlot.start,
+          busySlot.end
+        )
       );
 
       result.push({
@@ -201,8 +254,16 @@ export function computeSlotsWithStatus(
  * Vérifie si un client peut encore réserver un créneau.
  *
  * IMPORTANT :
- * Cette fonction vérifie uniquement la possibilité de CRÉER
- * une nouvelle réservation.
+ * Le backend est la source de vérité.
+ *
+ * Cette fonction vérifie :
+ * - le jour ;
+ * - les horaires d'ouverture ;
+ * - la durée complète du service ;
+ * - le coiffeur sélectionné ;
+ * - le pas correspondant à la durée du service ;
+ * - les rendez-vous existants du coiffeur ;
+ * - le délai minimum pour aujourd'hui.
  *
  * Elle ne modifie jamais un rendez-vous existant.
  */
@@ -226,7 +287,7 @@ export function isSlotStillAvailable(
   const start = toMinutes(startTime);
   const end = start + durationMinutes;
 
-  // Le créneau doit être entièrement dans les horaires d'ouverture.
+  // Le service doit être entièrement dans les horaires d'ouverture.
   const withinWindow = WORK_WINDOWS.some(
     (window) =>
       start >= window.start &&
@@ -237,11 +298,45 @@ export function isSlotStillAvailable(
     return false;
   }
 
+  /*
+   * IMPORTANT :
+   * Le backend doit également vérifier que l'heure demandée
+   * respecte le pas correspondant à la durée du service.
+   *
+   * Exemple :
+   * service 20 min -> 09:00, 09:20, 09:40...
+   * service 60 min -> 09:00, 10:00, 11:00...
+   */
+  const slotStepMinutes =
+    getSlotStepMinutes(durationMinutes);
+
+  const alignedToWindow = WORK_WINDOWS.some(
+    (window) => {
+      if (
+        start < window.start ||
+        end > window.end
+      ) {
+        return false;
+      }
+
+      return (
+        (start - window.start) %
+          slotStepMinutes ===
+        0
+      );
+    }
+  );
+
+  if (!alignedToWindow) {
+    return false;
+  }
+
   // Pour aujourd'hui, empêcher une nouvelle réservation
   // trop proche ou déjà passée.
   if (date === today) {
     const now = nowInSalonTz();
-    const nowMinutes = now.hour() * 60 + now.minute();
+    const nowMinutes =
+      now.hour() * 60 + now.minute();
 
     if (
       start <
@@ -251,12 +346,18 @@ export function isSlotStillAvailable(
     }
   }
 
-  // Vérifier les rendez-vous existants.
+  /*
+   * IMPORTANT :
+   * On vérifie uniquement les rendez-vous du coiffeur sélectionné.
+   *
+   * Un rendez-vous d'Abdou ne bloque donc jamais Rayen.
+   */
   const busy = getBusySlotsForStaffDate(
     staffId,
     date
   );
 
+  // Vérification sur toute la durée du nouveau service.
   const conflict = busy.some((busySlot) =>
     overlaps(
       start,
@@ -272,7 +373,8 @@ export function isSlotStillAvailable(
 /**
  * Nombre de clients ayant un rendez-vous avant celui demandé.
  *
- * On compte uniquement les rendez-vous confirmés.
+ * On compte uniquement les rendez-vous confirmés
+ * du coiffeur sélectionné.
  */
 export function countClientsBefore(
   staffId: number,
@@ -307,9 +409,9 @@ export function countClientsBefore(
  *
  * Ainsi :
  * rendez-vous 14:20
- * à 14:21 → toujours visible
- * à 15:00 → toujours visible
- * à 18:00 → toujours visible
+ * à 14:21 -> toujours visible
+ * à 15:00 -> toujours visible
+ * à 18:00 -> toujours visible
  *
  * Il disparaît uniquement s'il est annulé/modifié.
  */
