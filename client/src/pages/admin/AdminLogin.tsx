@@ -31,11 +31,13 @@ export default function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
       </div>
       <div className="w-full max-w-sm card px-6 py-8">
         <div className="w-14 h-14 mx-auto rounded-full border-2 border-gold-500 flex items-center justify-center text-gold-500 font-bold text-xl mb-4">
-          <img
-          src="/icons/icon-192.png"
-          alt={t.brand}
-          className="w-10 h-10 object-contain rounded-lg"
-/>
+          <div className="w-14 h-14 mx-auto flex items-center justify-center mb-4">
+            <img
+            src="/icon-192.png"
+            alt={t.brand}
+            className="w-14 h-14 object-contain rounded-lg"
+            />
+</div>
         </div>
         <h1 className="text-lg font-semibold text-center mb-6">{t.adminLoginTitle}</h1>
         <form onSubmit={handleSubmit} className="space-y-3">
