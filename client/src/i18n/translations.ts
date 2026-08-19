@@ -3,7 +3,7 @@ export type Lang = "fr" | "ar";
 export const translations = {
   fr: {
     dir: "ltr",
-    brand: "Salon Barber",
+    brand: "Rayen Coif",
     tagline: "Réservez votre rendez-vous en quelques secondes",
     step1Title: "1. Choisissez votre service",
     step2Title: "2. Choisissez votre coiffeur",
@@ -34,11 +34,11 @@ export const translations = {
     selectDate: "Sélectionner une date",
     today: "Aujourd'hui",
     tomorrow: "Demain",
-    adminLink: "Espace salon",
+    adminLink: "Rayen Coif",
     findUsButton: "📍 Voir sur Google Maps",
     findUsSecondary: "Voir la fiche Google",
-    salonAddress: "Rayen Coiff — Bizerte, Tunisie",
-    adminTitle: "Espace salon",
+    salonAddress: "Rayen Coif — Bizerte, Tunisie",
+    adminTitle: "Rayen Coif",
     adminLoginTitle: "Connexion administrateur",
     password: "Mot de passe",
     login: "Se connecter",

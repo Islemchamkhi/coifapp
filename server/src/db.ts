@@ -4,12 +4,14 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = process.env.DB_PATH || path.join(__dirname, "..", "data", "salon.db");
+const dbPath =
+  process.env.DB_PATH || path.join(__dirname, "..", "data", "salon.db");
 
 // Ensure data directory exists
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new Database(dbPath);
+
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
@@ -37,42 +39,136 @@ CREATE TABLE IF NOT EXISTS appointments (
   end_time TEXT NOT NULL,
   client_name TEXT,
   client_phone TEXT,
+
   status TEXT NOT NULL DEFAULT 'confirmed',
+
   notes TEXT,
+
+  -- Heure réelle d'arrivée du client
+  arrived_at TEXT,
+
+  -- Heure de fin réelle du rendez-vous
+  completed_at TEXT,
+
+  -- Retard en minutes
+  delay_minutes INTEGER NOT NULL DEFAULT 0,
+
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_appt_staff_date ON appointments(staff_id, date);
-CREATE INDEX IF NOT EXISTS idx_appt_date ON appointments(date);
-CREATE INDEX IF NOT EXISTS idx_appt_phone ON appointments(client_phone);
+CREATE INDEX IF NOT EXISTS idx_appt_staff_date
+  ON appointments(staff_id, date);
 
--- Filet de sécurité anti double-booking au niveau base de données : deux
--- rendez-vous actifs (confirmé ou bloqué) ne peuvent pas partager exactement
--- le même coiffeur + date + heure de début. La vérification applicative
--- (transaction dans booking.ts) reste la protection principale contre les
--- chevauchements de durées différentes ; cet index couvre le cas exact et
--- protège contre toute course concurrente.
+CREATE INDEX IF NOT EXISTS idx_appt_date
+  ON appointments(date);
+
+CREATE INDEX IF NOT EXISTS idx_appt_phone
+  ON appointments(client_phone);
+
+-- Anti double-booking
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
   ON appointments(staff_id, date, start_time)
   WHERE status IN ('confirmed', 'blocked');
 `);
 
-// Seed staff & services on first run only
-const staffCount = db.prepare("SELECT COUNT(*) as c FROM staff").get() as { c: number };
+/*
+ * ---------------------------------------------------------
+ * MIGRATION
+ * ---------------------------------------------------------
+ *
+ * Si la base existe déjà, les nouvelles colonnes sont ajoutées
+ * sans supprimer les rendez-vous existants.
+ */
+
+function addColumnIfMissing(
+  table: string,
+  column: string,
+  definition: string
+) {
+  const columns = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as { name: string }[];
+
+  const exists = columns.some((c) => c.name === column);
+
+  if (!exists) {
+    db.exec(
+      `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`
+    );
+  }
+}
+
+addColumnIfMissing(
+  "appointments",
+  "arrived_at",
+  "TEXT"
+);
+
+addColumnIfMissing(
+  "appointments",
+  "completed_at",
+  "TEXT"
+);
+
+addColumnIfMissing(
+  "appointments",
+  "delay_minutes",
+  "INTEGER NOT NULL DEFAULT 0"
+);
+
+/*
+ * ---------------------------------------------------------
+ * SEED STAFF
+ * ---------------------------------------------------------
+ */
+
+const staffCount = db.prepare(
+  "SELECT COUNT(*) as c FROM staff"
+).get() as { c: number };
+
 if (staffCount.c === 0) {
-  const insertStaff = db.prepare("INSERT INTO staff (name, active) VALUES (?, 1)");
+  const insertStaff = db.prepare(
+    "INSERT INTO staff (name, active) VALUES (?, 1)"
+  );
+
   insertStaff.run("Abdou");
   insertStaff.run("Rayen");
 }
 
-const serviceCount = db.prepare("SELECT COUNT(*) as c FROM services").get() as { c: number };
+/*
+ * ---------------------------------------------------------
+ * SEED SERVICES
+ * ---------------------------------------------------------
+ */
+
+const serviceCount = db.prepare(
+  "SELECT COUNT(*) as c FROM services"
+).get() as { c: number };
+
 if (serviceCount.c === 0) {
   const insertService = db.prepare(
-    "INSERT INTO services (name_fr, name_ar, duration_minutes, active) VALUES (?, ?, ?, 1)"
+    `INSERT INTO services
+      (name_fr, name_ar, duration_minutes, active)
+     VALUES (?, ?, ?, 1)`
   );
-  insertService.run("Coupe cheveux", "قص شعر", 20);
-  insertService.run("Coupe cheveux + barbe", "قص شعر + لحية", 30);
-  insertService.run("Autre service", "خدمة أخرى", 30);
+
+  insertService.run(
+    "Coupe cheveux",
+    "قص شعر",
+    20
+  );
+
+  insertService.run(
+    "Coupe cheveux + barbe",
+    "قص شعر + لحية",
+    30
+  );
+
+  insertService.run(
+    "Autre service",
+    "خدمة أخرى",
+    30
+  );
 }
 
 export default db;
