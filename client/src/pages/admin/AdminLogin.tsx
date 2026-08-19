@@ -13,33 +13,45 @@ export default function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       await adminLogin(password);
       onSuccess();
     } catch (err) {
-      if (err instanceof ApiRequestError) setError(t.wrongPassword);
-      else setError(t.errorGeneric);
+      if (err instanceof ApiRequestError) {
+        setError(t.wrongPassword);
+      } else {
+        setError(t.errorGeneric);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div dir={dir} className="min-h-screen flex flex-col items-center justify-center px-4">
+    <div
+      dir={dir}
+      className="min-h-screen flex flex-col items-center justify-center px-4"
+    >
       <div className="absolute top-4 end-4">
         <LanguageToggle />
       </div>
+
       <div className="w-full max-w-sm card px-6 py-8">
-        <div className="w-14 h-14 mx-auto rounded-full border-2 border-gold-500 flex items-center justify-center text-gold-500 font-bold text-xl mb-4">
-          <div className="w-14 h-14 mx-auto flex items-center justify-center mb-4">
-            <img
-            src="/icon-192.png"
+        
+        {/* Logo rond */}
+        <div className="w-14 h-14 mx-auto rounded-full border-2 border-gold-500 overflow-hidden flex items-center justify-center mb-4">
+          <img
+            src="/icons/icon-192.png"
             alt={t.brand}
-            className="w-14 h-14 object-contain rounded-lg"
-            />
-</div>
+            className="w-full h-full object-cover rounded-full"
+          />
         </div>
-        <h1 className="text-lg font-semibold text-center mb-6">{t.adminLoginTitle}</h1>
+
+        <h1 className="text-lg font-semibold text-center mb-6">
+          {t.adminLoginTitle}
+        </h1>
+
         <form onSubmit={handleSubmit} className="space-y-3">
           <input
             type="password"
@@ -49,8 +61,14 @@ export default function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+
           {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button type="submit" disabled={loading} className="btn-primary w-full">
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full"
+          >
             {t.login}
           </button>
         </form>
