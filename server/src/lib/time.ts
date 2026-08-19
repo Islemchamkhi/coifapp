@@ -1,6 +1,25 @@
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat.js";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+
 dayjs.extend(customParseFormat);
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+// Le salon est à Tunis : toute notion de "maintenant" côté serveur DOIT passer
+// par ce fuseau, quel que soit le fuseau système de l'hébergeur (souvent UTC).
+export const SALON_TIMEZONE = "Africa/Tunis";
+
+/** Heure actuelle, garantie dans le fuseau du salon (Africa/Tunis). */
+export function nowInSalonTz() {
+  return dayjs().tz(SALON_TIMEZONE);
+}
+
+/** Date du jour (YYYY-MM-DD) dans le fuseau du salon. */
+export function todayInSalonTz(): string {
+  return nowInSalonTz().format("YYYY-MM-DD");
+}
 
 // Salon working windows (minutes since midnight), Tuesday -> Sunday. Monday closed.
 export const WORK_WINDOWS = [

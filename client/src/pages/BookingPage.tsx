@@ -52,6 +52,35 @@ export default function BookingPage() {
       .finally(() => setLoadingSlots(false));
   }, [service, staff, date]);
 
+  // Actualisation raisonnable de la disponibilité pendant que le client regarde
+  // la grille de créneaux : ni reload complet, ni appel toutes les secondes.
+  // - toutes les 60s tant que l'écran de sélection de créneau est affiché
+  //   (couvre le cas où le temps passe et qu'un créneau devient passé) ;
+  // - immédiatement quand l'utilisateur revient sur l'onglet (couvre le cas
+  //   où un autre client a réservé pendant l'absence).
+  useEffect(() => {
+    if (!service || !staff || !date || time) return; // seulement pendant le choix du créneau
+
+    const refresh = () => {
+      getAvailability(staff.id, service.id, date)
+        .then((res) => setSlots(res.slots))
+        .catch(() => {});
+    };
+
+    const interval = setInterval(refresh, 60000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refresh);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [service, staff, date, time]);
+
   const step: Step = confirmation
     ? "confirmed"
     : !service
@@ -253,8 +282,28 @@ export default function BookingPage() {
         )}
       </main>
 
-      <footer className="px-4 py-4 text-center">
-        <Link to="/admin" className="text-xs text-zinc-600 hover:text-gold-500 transition-colors">
+      <footer className="px-4 py-6 text-center space-y-3">
+        <div>
+          <a
+            href="https://www.google.com/maps/@37.267738,9.836307,15z/data=!4m2!7m1!2e1?authuser=4&entry=ttu"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-secondary inline-block text-sm"
+          >
+            {t.findUsButton}
+          </a>
+          <p className="text-xs text-zinc-500 mt-2">{t.salonAddress}</p>
+          <a
+            href="https://www.google.com/search?client=safari&sca_esv=9956c2809c48c428&hl=fr-tn&cs=1&output=search&kgmid=/g/11xggr3ykb&q=rayen+coiff"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-zinc-600 hover:text-gold-500 transition-colors underline underline-offset-2"
+          >
+            {t.findUsSecondary}
+          </a>
+        </div>
+
+        <Link to="/admin" className="block text-xs text-zinc-600 hover:text-gold-500 transition-colors">
           {t.adminLink}
         </Link>
       </footer>

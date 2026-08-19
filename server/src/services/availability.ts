@@ -1,4 +1,3 @@
-import dayjs from "dayjs";
 import { db } from "../db.js";
 import { Appointment } from "../types.js";
 import {
@@ -9,6 +8,8 @@ import {
   toMinutes,
   toHHMM,
   overlaps,
+  nowInSalonTz,
+  todayInSalonTz,
 } from "../lib/time.js";
 
 export interface BusySlot {
@@ -40,9 +41,13 @@ export function computeAvailableSlots(
 ): string[] {
   if (isClosedDay(date)) return [];
 
+  const today = todayInSalonTz();
+  if (date < today) return []; // une date entièrement passée n'a plus aucun créneau
+
   const busy = getBusySlotsForStaffDate(staffId, date);
-  const isToday = dayjs(date, "YYYY-MM-DD").isSame(dayjs(), "day");
-  const nowMinutes = dayjs().hour() * 60 + dayjs().minute();
+  const isToday = date === today;
+  const now = nowInSalonTz();
+  const nowMinutes = now.hour() * 60 + now.minute();
 
   const slots: string[] = [];
 
@@ -71,15 +76,19 @@ export function isSlotStillAvailable(
 ): boolean {
   if (isClosedDay(date)) return false;
 
+  const today = todayInSalonTz();
+  if (date < today) return false; // date entièrement passée
+
   const start = toMinutes(startTime);
   const end = start + durationMinutes;
 
   const withinWindow = WORK_WINDOWS.some((w) => start >= w.start && end <= w.end);
   if (!withinWindow) return false;
 
-  const isToday = dayjs(date, "YYYY-MM-DD").isSame(dayjs(), "day");
+  const isToday = date === today;
   if (isToday) {
-    const nowMinutes = dayjs().hour() * 60 + dayjs().minute();
+    const now = nowInSalonTz();
+    const nowMinutes = now.hour() * 60 + now.minute();
     if (start < nowMinutes + BOOKING_MIN_LEAD_MINUTES) return false;
   }
 

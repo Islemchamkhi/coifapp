@@ -68,20 +68,32 @@ export function createBooking(input: CreateBookingInput): BookingConfirmation {
     const endTime = toHHMM(startMinutes + service.duration_minutes);
     const id = uuidv4();
 
-    db.prepare(
-      `INSERT INTO appointments
-        (id, staff_id, service_id, date, start_time, end_time, client_name, client_phone, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`
-    ).run(
-      id,
-      input.staffId,
-      input.serviceId,
-      input.date,
-      input.time,
-      endTime,
-      input.clientName.trim(),
-      input.clientPhone.trim()
-    );
+    try {
+      db.prepare(
+        `INSERT INTO appointments
+          (id, staff_id, service_id, date, start_time, end_time, client_name, client_phone, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`
+      ).run(
+        id,
+        input.staffId,
+        input.serviceId,
+        input.date,
+        input.time,
+        endTime,
+        input.clientName.trim(),
+        input.clientPhone.trim()
+      );
+    } catch (err) {
+      // Filet de sécurité : l'index unique en base a intercepté une course
+      // concurrente que la vérification ci-dessus n'aurait pas eu le temps de voir.
+      if (err instanceof Error && /UNIQUE constraint failed/i.test(err.message)) {
+        throw new BookingError(
+          "SLOT_UNAVAILABLE",
+          "Ce créneau vient d'être réservé ou n'est plus disponible. Merci d'en choisir un autre."
+        );
+      }
+      throw err;
+    }
 
     const appointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id) as Appointment;
     const clientsBefore = countClientsBefore(input.staffId, input.date, input.time);

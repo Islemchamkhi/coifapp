@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { db } from "../db.js";
 import { Appointment, ServiceRow, Staff } from "../types.js";
 import { requireAdmin, signAdminToken } from "../middleware/adminAuth.js";
-import { toHHMM, toMinutes, overlaps, isValidDateStr } from "../lib/time.js";
+import { toHHMM, toMinutes, overlaps, isValidDateStr, todayInSalonTz } from "../lib/time.js";
 import { getBusySlotsForStaffDate } from "../services/availability.js";
 
 const router = Router();
@@ -91,22 +91,31 @@ router.post("/appointments", (req, res) => {
   }
 
   const id = uuidv4();
-  db.prepare(
-    `INSERT INTO appointments
-      (id, staff_id, service_id, date, start_time, end_time, client_name, client_phone, status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    input.staffId,
-    input.serviceId ?? null,
-    input.date,
-    input.time,
-    toHHMM(end),
-    input.clientName ?? (input.status === "blocked" ? "Créneau bloqué" : null),
-    input.clientPhone ?? null,
-    input.status,
-    input.notes ?? null
-  );
+  try {
+    db.prepare(
+      `INSERT INTO appointments
+        (id, staff_id, service_id, date, start_time, end_time, client_name, client_phone, status, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      input.staffId,
+      input.serviceId ?? null,
+      input.date,
+      input.time,
+      toHHMM(end),
+      input.clientName ?? (input.status === "blocked" ? "Créneau bloqué" : null),
+      input.clientPhone ?? null,
+      input.status,
+      input.notes ?? null
+    );
+  } catch (err) {
+    if (err instanceof Error && /UNIQUE constraint failed/i.test(err.message)) {
+      return res
+        .status(409)
+        .json({ error: "SLOT_UNAVAILABLE", message: "Ce créneau chevauche un autre rendez-vous existant." });
+    }
+    throw err;
+  }
 
   const appointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
   res.status(201).json(appointment);
@@ -161,23 +170,32 @@ router.put("/appointments/:id", (req, res) => {
       .json({ error: "SLOT_UNAVAILABLE", message: "Ce créneau chevauche un autre rendez-vous existant." });
   }
 
-  db.prepare(
-    `UPDATE appointments SET
-      staff_id = ?, service_id = ?, date = ?, start_time = ?, end_time = ?,
-      client_name = ?, client_phone = ?, notes = ?, status = ?
-     WHERE id = ?`
-  ).run(
-    staffId,
-    input.serviceId !== undefined ? input.serviceId : existing.service_id,
-    date,
-    time,
-    toHHMM(end),
-    input.clientName !== undefined ? input.clientName : existing.client_name,
-    input.clientPhone !== undefined ? input.clientPhone : existing.client_phone,
-    input.notes !== undefined ? input.notes : existing.notes,
-    input.status ?? existing.status,
-    existing.id
-  );
+  try {
+    db.prepare(
+      `UPDATE appointments SET
+        staff_id = ?, service_id = ?, date = ?, start_time = ?, end_time = ?,
+        client_name = ?, client_phone = ?, notes = ?, status = ?
+       WHERE id = ?`
+    ).run(
+      staffId,
+      input.serviceId !== undefined ? input.serviceId : existing.service_id,
+      date,
+      time,
+      toHHMM(end),
+      input.clientName !== undefined ? input.clientName : existing.client_name,
+      input.clientPhone !== undefined ? input.clientPhone : existing.client_phone,
+      input.notes !== undefined ? input.notes : existing.notes,
+      input.status ?? existing.status,
+      existing.id
+    );
+  } catch (err) {
+    if (err instanceof Error && /UNIQUE constraint failed/i.test(err.message)) {
+      return res
+        .status(409)
+        .json({ error: "SLOT_UNAVAILABLE", message: "Ce créneau chevauche un autre rendez-vous existant." });
+    }
+    throw err;
+  }
 
   const updated = db.prepare("SELECT * FROM appointments WHERE id = ?").get(existing.id);
   res.json(updated);
@@ -327,7 +345,7 @@ router.get("/stats", (req, res) => {
     )
     .all(from, to);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInSalonTz();
   const todayCount = db
     .prepare(`SELECT COUNT(*) as c FROM appointments WHERE date = ? AND status = 'confirmed'`)
     .get(today) as { c: number };

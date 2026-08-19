@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS appointments (
 CREATE INDEX IF NOT EXISTS idx_appt_staff_date ON appointments(staff_id, date);
 CREATE INDEX IF NOT EXISTS idx_appt_date ON appointments(date);
 CREATE INDEX IF NOT EXISTS idx_appt_phone ON appointments(client_phone);
+
+-- Filet de sécurité anti double-booking au niveau base de données : deux
+-- rendez-vous actifs (confirmé ou bloqué) ne peuvent pas partager exactement
+-- le même coiffeur + date + heure de début. La vérification applicative
+-- (transaction dans booking.ts) reste la protection principale contre les
+-- chevauchements de durées différentes ; cet index couvre le cas exact et
+-- protège contre toute course concurrente.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
+  ON appointments(staff_id, date, start_time)
+  WHERE status IN ('confirmed', 'blocked');
 `);
 
 // Seed staff & services on first run only
