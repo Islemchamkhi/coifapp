@@ -24,7 +24,10 @@ export default function TimeSlotGrid({
     return (
       <div className="grid grid-cols-4 gap-2">
         {Array.from({ length: 12 }).map((_, i) => (
-          <div key={i} className="h-11 rounded-xl bg-ink-800 animate-pulse" />
+          <div
+            key={i}
+            className="h-11 rounded-xl bg-ink-800 animate-pulse"
+          />
         ))}
       </div>
     );
@@ -40,31 +43,58 @@ export default function TimeSlotGrid({
 
   return (
     <div className="grid grid-cols-4 gap-2">
-      {slots.map(({ time, status }) => {
+      {slots.map(({ time, status, isExceptional }) => {
         const active = selected === time;
+
+        /**
+         * SEUL "booked" est réellement indisponible.
+         *
+         * "available" = réservation normale
+         * "request"   = demande exceptionnelle
+         *
+         * Les deux peuvent être sélectionnés.
+         */
         const booked = status === "booked";
-        const label = booked ? bookedLabel : availableLabel;
+        const exceptional = status === "request";
+
+        const label = booked
+          ? bookedLabel
+          : exceptional
+          ? "Demande"
+          : availableLabel;
 
         return (
           <button
-            key={time}
+            key={`${time}-${status}`}
             type="button"
             onClick={() => {
-              if (!booked) onSelect(time);
+              if (!booked) {
+                onSelect(time);
+              }
             }}
             disabled={booked}
             aria-disabled={booked}
+            aria-pressed={active}
             title={label}
             className={`h-11 rounded-xl text-sm font-medium border transition-all flex flex-col items-center justify-center leading-tight ${
               booked
                 ? "border-ink-800 bg-ink-900/60 text-zinc-600 cursor-not-allowed opacity-60"
                 : active
                 ? "border-gold-500 bg-gold-500 text-ink-950 shadow-glow font-semibold"
+                : exceptional || isExceptional
+                ? "border-amber-700/60 bg-amber-950/20 text-amber-300 hover:border-amber-600"
                 : "border-ink-700 bg-ink-900 text-zinc-200 hover:border-ink-600"
             }`}
           >
             <span className="flex items-center gap-1">
-              <span aria-hidden="true">{booked ? "🔴" : "🟢"}</span>
+              <span aria-hidden="true">
+                {booked
+                  ? "🔴"
+                  : exceptional
+                  ? "🟠"
+                  : "🟢"}
+              </span>
+
               {time}
             </span>
           </button>
