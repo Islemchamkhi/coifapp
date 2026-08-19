@@ -12,9 +12,14 @@ const router = Router();
 // ---------- AUTH ----------
 router.post("/login", (req, res) => {
   const { password } = req.body || {};
+
   if (!password || password !== (process.env.ADMIN_PASSWORD || "changeme123")) {
-    return res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Mot de passe incorrect." });
+    return res.status(401).json({
+      error: "INVALID_CREDENTIALS",
+      message: "Mot de passe incorrect.",
+    });
   }
+
   res.json({ token: signAdminToken() });
 });
 
