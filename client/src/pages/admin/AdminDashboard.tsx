@@ -29,11 +29,11 @@ export default function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     <div dir={dir} className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-10 bg-ink-950/90 backdrop-blur border-b border-ink-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full border-2 border-gold-500 overflow-hidden flex items-center justify-center">
+          <div className="w-9 h-9 rounded-full border-2 border-gold-500 overflow-hidden">
             <img
             src="/icons/icon-192.png"
             alt={t.brand}
-            className="w-full h-full object-cover rounded-full"
+            className="w-full h-full object-cover"
             />
 </div>
           <p className="font-semibold text-sm">{t.adminTitle}</p>
