@@ -27,34 +27,45 @@ const statusColors: Record<string, string> = {
 export default function AppointmentsTab() {
   const { t, dir } = useLanguage();
 
+  // --------------------------------------------------
   // Date sélectionnée
+  // --------------------------------------------------
   const [date, setDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
 
+  // --------------------------------------------------
   // Filtre coiffeur
+  // --------------------------------------------------
   const [staffFilter, setStaffFilter] = useState<number | "all">("all");
 
+  // --------------------------------------------------
   // Données
+  // --------------------------------------------------
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
 
   const [loading, setLoading] = useState(true);
 
+  // --------------------------------------------------
   // Modal
+  // --------------------------------------------------
   const [modal, setModal] = useState<{
     mode: "create" | "edit" | "block";
     appt?: Appointment;
   } | null>(null);
 
-  /**
-   * Charge les rendez-vous.
-   *
-   * IMPORTANT :
-   * Aucun contrôle de l'heure n'est effectué ici.
-   * Un rendez-vous passé reste donc affiché.
-   */
+  // --------------------------------------------------
+  // Charger les rendez-vous
+  //
+  // IMPORTANT :
+  // Aucun filtre selon l'heure n'est appliqué ici.
+  //
+  // Donc :
+  // 14:40 reste affiché après 14:40
+  // 15:10 reste affiché après 15:10
+  // --------------------------------------------------
   async function load() {
     setLoading(true);
 
@@ -73,6 +84,7 @@ export default function AppointmentsTab() {
 
       // On affiche exactement les rendez-vous
       // retournés par le backend.
+      // Aucun rendez-vous passé n'est supprimé.
       setAppointments(appts);
 
       setStaffList(staff);
@@ -87,9 +99,9 @@ export default function AppointmentsTab() {
     }
   }
 
-  /**
-   * Chargement initial + changement de date/coiffeur.
-   */
+  // --------------------------------------------------
+  // Chargement initial + changement date/coiffeur
+  // --------------------------------------------------
   useEffect(() => {
     load();
 
@@ -97,12 +109,12 @@ export default function AppointmentsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, staffFilter]);
 
-  /**
-   * Annulation MANUELLE uniquement.
-   *
-   * Aucun rendez-vous n'est annulé automatiquement
-   * selon l'heure.
-   */
+  // --------------------------------------------------
+  // Annulation MANUELLE uniquement
+  //
+  // Aucun rendez-vous n'est annulé automatiquement
+  // lorsque son heure est dépassée.
+  // --------------------------------------------------
   async function handleCancel(id: string) {
     try {
       await adminCancelAppointment(id);
@@ -118,9 +130,9 @@ export default function AppointmentsTab() {
   return (
     <div dir={dir}>
 
-      {/* ========================= */}
+      {/* ================================================= */}
       {/* FILTRES + BOUTONS */}
-      {/* ========================= */}
+      {/* ================================================= */}
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
 
@@ -187,9 +199,9 @@ export default function AppointmentsTab() {
         </button>
       </div>
 
-      {/* ========================= */}
+      {/* ================================================= */}
       {/* CHARGEMENT */}
-      {/* ========================= */}
+      {/* ================================================= */}
 
       {loading ? (
         <div className="space-y-2">
@@ -200,11 +212,12 @@ export default function AppointmentsTab() {
             />
           ))}
         </div>
+
       ) : appointments.length === 0 ? (
 
-        /* ========================= */
+        /* ================================================= */
         /* AUCUN RENDEZ-VOUS */
-        /* ========================= */
+        /* ================================================= */
 
         <div className="card px-4 py-8 text-center text-zinc-400 text-sm">
           {t.noAppointments}
@@ -212,23 +225,25 @@ export default function AppointmentsTab() {
 
       ) : (
 
-        /* ========================= */
+        /* ================================================= */
         /* LISTE DES RENDEZ-VOUS */
-        /* ========================= */
+        /* ================================================= */
 
         <div className="space-y-2">
 
           {appointments.map((appointment) => (
+
             <div
               key={appointment.id}
               className="card px-4 py-3 flex items-center gap-3"
             >
 
-              {/* ========================= */}
+              {/* ================================================= */}
               {/* HEURE */}
-              {/* ========================= */}
+              {/* ================================================= */}
 
               <div className="w-14 text-center shrink-0">
+
                 <p className="font-bold text-gold-500 text-sm">
                   {appointment.start_time}
                 </p>
@@ -236,11 +251,12 @@ export default function AppointmentsTab() {
                 <p className="text-[10px] text-zinc-500">
                   {appointment.end_time}
                 </p>
+
               </div>
 
-              {/* ========================= */}
+              {/* ================================================= */}
               {/* INFORMATIONS CLIENT */}
-              {/* ========================= */}
+              {/* ================================================= */}
 
               <div className="flex-1 min-w-0">
 
@@ -254,25 +270,26 @@ export default function AppointmentsTab() {
                 </p>
 
                 <p className="text-xs text-zinc-500 truncate">
-                  {appointment.staff_name}
-                  {" • "}
-                  {appointment.service_name_fr || "—"}
+                  {appointment.client_phone || "—"}
+                </p>
 
-                  {appointment.client_phone
-                    ? ` • ${appointment.client_phone}`
+                <p className="text-xs text-zinc-500 truncate">
+                  {appointment.service_name_fr || "—"}
+                  {appointment.staff_name
+                    ? ` • ${appointment.staff_name}`
                     : ""}
                 </p>
 
               </div>
 
-              {/* ========================= */}
+              {/* ================================================= */}
               {/* STATUT */}
-              {/* ========================= */}
+              {/* ================================================= */}
 
               <span
                 className={`pill border ${
                   statusColors[appointment.status] ||
-                  "bg-zinc-500/15 text-zinc-400 border-zinc-500/30"
+                  statusColors.confirmed
                 }`}
               >
                 {
@@ -286,12 +303,12 @@ export default function AppointmentsTab() {
                 }
               </span>
 
-              {/* ========================= */}
+              {/* ================================================= */}
               {/* ACTIONS */}
-              {/* ========================= */}
+              {/* ================================================= */}
 
               {appointment.status !== "cancelled" && (
-                <div className="flex gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
 
                   {/* Modifier */}
                   <button
@@ -327,9 +344,9 @@ export default function AppointmentsTab() {
         </div>
       )}
 
-      {/* ========================= */}
+      {/* ================================================= */}
       {/* MODAL */}
-      {/* ========================= */}
+      {/* ================================================= */}
 
       {modal && (
         <AppointmentFormModal
