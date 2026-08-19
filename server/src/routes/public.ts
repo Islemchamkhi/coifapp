@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../db.js";
 import { ServiceRow, Staff } from "../types.js";
-import { computeAvailableSlots } from "../services/availability.js";
+import { computeSlotsWithStatus } from "../services/availability.js";
 import { createBooking, BookingError } from "../services/booking.js";
 import { isValidDateStr } from "../lib/time.js";
 
@@ -51,7 +51,10 @@ router.get("/availability", (req, res) => {
     return res.status(404).json({ error: "STAFF_NOT_FOUND", message: "Coiffeur introuvable." });
   }
 
-  const slots = computeAvailableSlots(staffId, date, service.duration_minutes);
+  // On renvoie TOUS les créneaux (disponibles + réservés) pour que le client
+  // voie l'ensemble de la journée. Seules l'heure et le statut sont exposés :
+  // computeSlotsWithStatus ne lit jamais client_name / client_phone.
+  const slots = computeSlotsWithStatus(staffId, date, service.duration_minutes);
   res.json({ date, staffId, serviceId, durationMinutes: service.duration_minutes, slots });
 });
 

@@ -31,12 +31,19 @@ export interface Appointment {
   service_duration?: number;
 }
 
+export type SlotStatus = "available" | "booked";
+
+export interface SlotWithStatus {
+  time: string;
+  status: SlotStatus;
+}
+
 export interface AvailabilityResponse {
   date: string;
   staffId: number;
   serviceId: number;
   durationMinutes: number;
-  slots: string[];
+  slots: SlotWithStatus[];
 }
 
 export interface BookingConfirmation {
@@ -61,6 +68,21 @@ export interface StatsResponse {
   byService: { service_name: string; total: number }[];
   byHour: { hour: string; total: number }[];
   todayCount: number;
+}
+
+export interface AdminNotification {
+  id: string;
+  type: string;
+  appointment_id: string | null;
+  title: string;
+  message: string;
+  created_at: string;
+  date?: string | null;
+  start_time?: string | null;
+  client_name?: string | null;
+  service_name_fr?: string | null;
+  staff_name?: string | null;
+  read_at: string | null;
 }
 
 export interface ApiError {

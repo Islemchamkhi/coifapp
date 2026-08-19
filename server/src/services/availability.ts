@@ -122,6 +122,81 @@ export function computeAvailableSlots(
   return slots;
 }
 
+export type SlotStatus = "available" | "booked";
+
+export interface SlotWithStatus {
+  time: string;
+  status: SlotStatus;
+}
+
+/**
+ * Calcule TOUS les créneaux valides de la journée (disponibles ET réservés),
+ * pour affichage côté client.
+ *
+ * Différence avec computeAvailableSlots :
+ * - computeAvailableSlots ne renvoie QUE les créneaux libres.
+ * - computeSlotsWithStatus renvoie aussi les créneaux occupés par un
+ *   rendez-vous existant, avec le statut "booked", SANS jamais exposer
+ *   d'information sur le client qui a réservé (nom, téléphone, etc.) :
+ *   seules les heures de début/fin sont utilisées (cf. getBusySlotsForStaffDate).
+ *
+ * Les règles de fenêtre horaire, jour fermé, date passée et délai minimum
+ * pour aujourd'hui restent identiques à computeAvailableSlots : un créneau
+ * déjà passé aujourd'hui n'est pas affiché (il ne serait de toute façon
+ * plus réservable), qu'il soit occupé ou non.
+ */
+export function computeSlotsWithStatus(
+  staffId: number,
+  date: string,
+  durationMinutes: number
+): SlotWithStatus[] {
+  if (isClosedDay(date)) {
+    return [];
+  }
+
+  const today = todayInSalonTz();
+
+  if (date < today) {
+    return [];
+  }
+
+  const busy = getBusySlotsForStaffDate(staffId, date);
+
+  const isToday = date === today;
+
+  const now = nowInSalonTz();
+  const nowMinutes = now.hour() * 60 + now.minute();
+
+  const minimumStart = nowMinutes + BOOKING_MIN_LEAD_MINUTES;
+
+  const result: SlotWithStatus[] = [];
+
+  for (const window of WORK_WINDOWS) {
+    for (
+      let start = window.start;
+      start + durationMinutes <= window.end;
+      start += SLOT_STEP_MINUTES
+    ) {
+      if (isToday && start < minimumStart) {
+        continue;
+      }
+
+      const end = start + durationMinutes;
+
+      const conflict = busy.some((busySlot) =>
+        overlaps(start, end, busySlot.start, busySlot.end)
+      );
+
+      result.push({
+        time: toHHMM(start),
+        status: conflict ? "booked" : "available",
+      });
+    }
+  }
+
+  return result;
+}
+
 /**
  * Vérifie si un client peut encore réserver un créneau.
  *

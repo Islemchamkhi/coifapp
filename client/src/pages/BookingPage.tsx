@@ -13,6 +13,7 @@ import {
   ServiceItem,
   Staff,
   BookingConfirmation,
+  SlotWithStatus,
 } from "../types";
 
 import {
@@ -43,7 +44,7 @@ export default function BookingPage() {
   const [date, setDate] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
 
-  const [slots, setSlots] = useState<string[]>([]);
+  const [slots, setSlots] = useState<SlotWithStatus[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
   const [clientName, setClientName] = useState("");
@@ -378,7 +379,21 @@ export default function BookingPage() {
               onSelect={setTime}
               loading={loadingSlots}
               emptyMessage={t.noSlot}
+              availableLabel={t.slotAvailable}
+              bookedLabel={t.slotBooked}
             />
+
+            {/* Légende */}
+            {!loadingSlots && slots.length > 0 && (
+              <div className="flex items-center gap-4 mt-3 text-xs text-zinc-400">
+                <span className="flex items-center gap-1">
+                  🟢 {t.slotAvailable}
+                </span>
+                <span className="flex items-center gap-1">
+                  🔴 {t.slotBooked}
+                </span>
+              </div>
+            )}
           </section>
         )}
 

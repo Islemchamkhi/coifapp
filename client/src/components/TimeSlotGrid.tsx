@@ -1,14 +1,25 @@
 import React from "react";
+import { SlotWithStatus } from "../types";
 
 interface Props {
-  slots: string[];
+  slots: SlotWithStatus[];
   selected: string | null;
   onSelect: (time: string) => void;
   loading?: boolean;
   emptyMessage?: string;
+  availableLabel?: string;
+  bookedLabel?: string;
 }
 
-export default function TimeSlotGrid({ slots, selected, onSelect, loading, emptyMessage }: Props) {
+export default function TimeSlotGrid({
+  slots,
+  selected,
+  onSelect,
+  loading,
+  emptyMessage,
+  availableLabel,
+  bookedLabel,
+}: Props) {
   if (loading) {
     return (
       <div className="grid grid-cols-4 gap-2">
@@ -29,19 +40,33 @@ export default function TimeSlotGrid({ slots, selected, onSelect, loading, empty
 
   return (
     <div className="grid grid-cols-4 gap-2">
-      {slots.map((time) => {
+      {slots.map(({ time, status }) => {
         const active = selected === time;
+        const booked = status === "booked";
+        const label = booked ? bookedLabel : availableLabel;
+
         return (
           <button
             key={time}
-            onClick={() => onSelect(time)}
-            className={`h-11 rounded-xl text-sm font-medium border transition-all ${
-              active
+            type="button"
+            onClick={() => {
+              if (!booked) onSelect(time);
+            }}
+            disabled={booked}
+            aria-disabled={booked}
+            title={label}
+            className={`h-11 rounded-xl text-sm font-medium border transition-all flex flex-col items-center justify-center leading-tight ${
+              booked
+                ? "border-ink-800 bg-ink-900/60 text-zinc-600 cursor-not-allowed opacity-60"
+                : active
                 ? "border-gold-500 bg-gold-500 text-ink-950 shadow-glow font-semibold"
                 : "border-ink-700 bg-ink-900 text-zinc-200 hover:border-ink-600"
             }`}
           >
-            {time}
+            <span className="flex items-center gap-1">
+              <span aria-hidden="true">{booked ? "🔴" : "🟢"}</span>
+              {time}
+            </span>
           </button>
         );
       })}
