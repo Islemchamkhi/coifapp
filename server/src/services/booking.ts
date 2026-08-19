@@ -35,7 +35,9 @@ export interface BookingConfirmation {
 }
 
 /**
- * Crée un rendez-vous de façon atomique.
+ * ============================================================
+ * CRÉATION D'UNE RÉSERVATION
+ * ============================================================
  *
  * Règles :
  *
@@ -46,15 +48,41 @@ export interface BookingConfirmation {
  * Samedi -> Dimanche
  * 08:00 -> 22:00 : confirmed
  *
- * La validation de l'horaire et de la durée complète
- * du service est effectuée par isSlotStillAvailable().
+ * IMPORTANT :
+ *
+ * La disponibilité est calculée sur TOUTE la durée du service.
+ *
+ * Exemple :
+ *
+ * réservation existante :
+ * 17:30 -> 17:50
+ *
+ * nouvelle réservation :
+ * 17:55 -> 18:15
+ *
+ * => AUTORISÉE
+ *
+ * nouvelle réservation :
+ * 17:45 -> 18:05
+ *
+ * => REFUSÉE
  */
 export function createBooking(
   input: CreateBookingInput
 ): BookingConfirmation {
+  /**
+   * ==========================================================
+   * COIFFEUR
+   * ==========================================================
+   */
   const staff = db
     .prepare(
-      "SELECT * FROM staff WHERE id = ? AND active = 1"
+      `
+      SELECT *
+      FROM staff
+      WHERE id = ?
+        AND active = 1
+      `
     )
     .get(input.staffId) as Staff | undefined;
 
@@ -65,9 +93,19 @@ export function createBooking(
     );
   }
 
+  /**
+   * ==========================================================
+   * SERVICE
+   * ==========================================================
+   */
   const service = db
     .prepare(
-      "SELECT * FROM services WHERE id = ? AND active = 1"
+      `
+      SELECT *
+      FROM services
+      WHERE id = ?
+        AND active = 1
+      `
     )
     .get(input.serviceId) as ServiceRow | undefined;
 
@@ -78,89 +116,238 @@ export function createBooking(
     );
   }
 
-  if (
-    !input.clientName?.trim() ||
-    !input.clientPhone?.trim()
-  ) {
+  /**
+   * ==========================================================
+   * INFORMATIONS CLIENT
+   * ==========================================================
+   */
+  const clientName =
+    input.clientName?.trim();
+
+  const clientPhone =
+    input.clientPhone?.trim();
+
+  if (!clientName || !clientPhone) {
     throw new BookingError(
       "MISSING_CLIENT_INFO",
       "Nom et téléphone requis."
     );
   }
 
+  /**
+   * Vérification basique de l'heure.
+   */
+  if (!/^\d{2}:\d{2}$/.test(input.time)) {
+    throw new BookingError(
+      "INVALID_TIME",
+      "Heure invalide."
+    );
+  }
+
+  /**
+   * Vérifier que l'heure peut être transformée
+   * correctement en minutes.
+   */
+  const startMinutes =
+    toMinutes(input.time);
+
+  if (
+    !Number.isFinite(startMinutes) ||
+    startMinutes < 0 ||
+    startMinutes >= 24 * 60
+  ) {
+    throw new BookingError(
+      "INVALID_TIME",
+      "Heure invalide."
+    );
+  }
+
+  /**
+   * Durée complète du service.
+   */
+  const durationMinutes =
+    service.duration_minutes;
+
+  if (
+    !Number.isFinite(durationMinutes) ||
+    durationMinutes <= 0
+  ) {
+    throw new BookingError(
+      "INVALID_SERVICE_DURATION",
+      "La durée du service est invalide."
+    );
+  }
+
+  const endMinutes =
+    startMinutes +
+    durationMinutes;
+
+  const endTime =
+    toHHMM(endMinutes);
+
+  /**
+   * ==========================================================
+   * TRANSACTION
+   * ==========================================================
+   *
+   * Toutes les vérifications critiques et l'INSERT
+   * sont effectués dans la même transaction.
+   */
   const run = db.transaction(() => {
     /**
-     * Vérification backend de la disponibilité.
+     * ========================================================
+     * ÉTAPE 1
+     * Vérification générale de disponibilité.
      *
-     * Cette fonction vérifie également :
-     * - les horaires du salon ;
-     * - la durée complète du service ;
-     * - le coiffeur ;
-     * - les chevauchements ;
-     * - le délai minimum ;
-     * - le pas correspondant à la durée.
+     * Cette vérification regarde :
+     * - jour fermé
+     * - date passée
+     * - délai minimum
+     * - horaires du salon
+     * - durée complète
+     * - conflits
+     *
+     * IMPORTANT :
+     * elle accepte désormais une heure personnalisée.
+     *
+     * Exemple :
+     * service 20 min
+     * 17:55 -> 18:15
+     *
+     * est accepté si toute la période est libre.
      */
     const stillAvailable =
       isSlotStillAvailable(
         input.staffId,
         input.date,
         input.time,
-        service.duration_minutes
+        durationMinutes
       );
 
     if (!stillAvailable) {
       throw new BookingError(
         "SLOT_UNAVAILABLE",
-        "Ce créneau vient d'être réservé ou n'est plus disponible. Merci d'en choisir un autre."
+        "Ce créneau n'est plus disponible. Merci d'en choisir un autre."
       );
     }
 
-    const startMinutes =
-      toMinutes(input.time);
+    /**
+     * ========================================================
+     * ÉTAPE 2
+     * VÉRIFICATION FINALE DIRECTEMENT EN BASE
+     * ========================================================
+     *
+     * On vérifie une deuxième fois les périodes occupées
+     * juste avant l'INSERT.
+     *
+     * Condition de conflit :
+     *
+     * existing.start < new.end
+     * ET
+     * existing.end > new.start
+     *
+     * Exemple :
+     *
+     * EXISTANT 17:30 -> 17:50
+     *
+     * NOUVEAU 17:50 -> 18:10
+     *
+     * 17:30 < 18:10 = true
+     * 17:50 > 17:50 = false
+     *
+     * => PAS de conflit
+     *
+     * ---------------------------------
+     *
+     * EXISTANT 17:30 -> 17:50
+     *
+     * NOUVEAU 17:45 -> 18:05
+     *
+     * 17:30 < 18:05 = true
+     * 17:50 > 17:45 = true
+     *
+     * => CONFLIT
+     */
+    const conflictingAppointment =
+      db
+        .prepare(
+          `
+          SELECT id
+          FROM appointments
+          WHERE staff_id = ?
+            AND date = ?
+            AND status IN (
+              'confirmed',
+              'pending',
+              'blocked'
+            )
+            AND start_time < ?
+            AND end_time > ?
+          LIMIT 1
+          `
+        )
+        .get(
+          input.staffId,
+          input.date,
+          endTime,
+          input.time
+        ) as { id: string } | undefined;
 
-    const endTime =
-      toHHMM(
-        startMinutes +
-          service.duration_minutes
+    if (conflictingAppointment) {
+      throw new BookingError(
+        "SLOT_UNAVAILABLE",
+        "Ce créneau vient d'être réservé ou chevauche un autre rendez-vous. Merci d'en choisir un autre."
       );
+    }
 
     /**
-     * Détermine si le créneau correspond
-     * à une demande exceptionnelle.
+     * ========================================================
+     * ÉTAPE 3
+     * TYPE DE RÉSERVATION
+     * ========================================================
      *
      * Semaine :
      * 20:00 -> 21:00 = pending
      *
-     * Tout le reste = confirmed.
+     * Sinon = confirmed
      */
     const exceptional =
       isExceptionalSlot(
         input.date,
         input.time,
-        service.duration_minutes
+        durationMinutes
       );
 
-    const status = exceptional
-      ? "pending"
-      : "confirmed";
+    const status =
+      exceptional
+        ? "pending"
+        : "confirmed";
 
+    /**
+     * ========================================================
+     * ÉTAPE 4
+     * INSERT
+     * ========================================================
+     */
     const id = uuidv4();
 
     try {
       db.prepare(
-        `INSERT INTO appointments
-          (
-            id,
-            staff_id,
-            service_id,
-            date,
-            start_time,
-            end_time,
-            client_name,
-            client_phone,
-            status
-          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `
+        INSERT INTO appointments
+        (
+          id,
+          staff_id,
+          service_id,
+          date,
+          start_time,
+          end_time,
+          client_name,
+          client_phone,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `
       ).run(
         id,
         input.staffId,
@@ -168,15 +355,16 @@ export function createBooking(
         input.date,
         input.time,
         endTime,
-        input.clientName.trim(),
-        input.clientPhone.trim(),
+        clientName,
+        clientPhone,
         status
       );
     } catch (err) {
       /**
-       * Filet de sécurité :
-       * l'index unique en base peut intercepter
-       * une course concurrente.
+       * Filet de sécurité supplémentaire.
+       *
+       * Si la DB possède un index/contrainte UNIQUE,
+       * on transforme également l'erreur en 409.
        */
       if (
         err instanceof Error &&
@@ -186,20 +374,43 @@ export function createBooking(
       ) {
         throw new BookingError(
           "SLOT_UNAVAILABLE",
-          "Ce créneau vient d'être réservé ou n'est plus disponible. Merci d'en choisir un autre."
+          "Ce créneau vient d'être réservé. Merci d'en choisir un autre."
         );
       }
 
       throw err;
     }
 
+    /**
+     * ========================================================
+     * ÉTAPE 5
+     * RÉCUPÉRATION DU RENDEZ-VOUS CRÉÉ
+     * ========================================================
+     */
     const appointment =
       db
         .prepare(
-          "SELECT * FROM appointments WHERE id = ?"
+          `
+          SELECT *
+          FROM appointments
+          WHERE id = ?
+          `
         )
         .get(id) as Appointment;
 
+    if (!appointment) {
+      throw new BookingError(
+        "BOOKING_CREATE_FAILED",
+        "Impossible de créer le rendez-vous."
+      );
+    }
+
+    /**
+     * ========================================================
+     * ÉTAPE 6
+     * NOMBRE DE CLIENTS AVANT
+     * ========================================================
+     */
     const clientsBefore =
       countClientsBefore(
         input.staffId,
@@ -213,18 +424,26 @@ export function createBooking(
     };
   });
 
+  /**
+   * ==========================================================
+   * EXÉCUTION
+   * ==========================================================
+   */
   const {
     appointment,
     clientsBefore,
   } = run();
 
+  /**
+   * ==========================================================
+   * CONFIRMATION
+   * ==========================================================
+   */
   return {
     appointment,
     service,
     staff,
     clientsBefore,
-
-    // L'estimation correspond à l'heure demandée.
     estimatedTime:
       appointment.start_time,
   };
