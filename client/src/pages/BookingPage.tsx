@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Link } from "react-router-dom";
+
 import { useLanguage } from "../i18n/LanguageContext";
 import LanguageToggle from "../components/LanguageToggle";
 import ServiceSelector from "../components/ServiceSelector";
 import StaffSelector from "../components/StaffSelector";
 import DateStrip from "../components/DateStrip";
 import TimeSlotGrid from "../components/TimeSlotGrid";
+
 import {
   ServiceItem,
   Staff,
   BookingConfirmation,
 } from "../types";
+
 import {
   getServices,
   getStaff,
@@ -45,65 +48,98 @@ export default function BookingPage() {
 
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
   const [confirmation, setConfirmation] =
     useState<BookingConfirmation | null>(null);
 
+  // Chargement des services et des barbiers
   useEffect(() => {
     Promise.all([getServices(), getStaff()])
-      .then(([s, st]) => {
-        setServices(s);
-        setStaffList(st);
+      .then(([servicesData, staffData]) => {
+        setServices(servicesData);
+        setStaffList(staffData);
       })
-      .finally(() => setLoadingCatalog(false));
+      .finally(() => {
+        setLoadingCatalog(false);
+      });
   }, []);
 
+  // Chargement des créneaux disponibles
   useEffect(() => {
-    if (!service || !staff || !date) return;
+    if (!service || !staff || !date) {
+      return;
+    }
 
     setLoadingSlots(true);
     setTime(null);
 
     getAvailability(staff.id, service.id, date)
-      .then((res) => setSlots(res.slots))
-      .catch(() => setSlots([]))
-      .finally(() => setLoadingSlots(false));
+      .then((res) => {
+        setSlots(res.slots);
+      })
+      .catch(() => {
+        setSlots([]);
+      })
+      .finally(() => {
+        setLoadingSlots(false);
+      });
   }, [service, staff, date]);
 
-  // Actualisation raisonnable de la disponibilité pendant que le client regarde
-  // la grille de créneaux : ni reload complet, ni appel toutes les secondes.
-  // - toutes les 60s tant que l'écran de sélection de créneau est affiché
-  //   (couvre le cas où le temps passe et qu'un créneau devient passé) ;
-  // - immédiatement quand l'utilisateur revient sur l'onglet
-  //   (couvre le cas où un autre client a réservé pendant l'absence).
+  // Actualisation de la disponibilité toutes les 60 secondes
+  // et lorsque l'utilisateur revient sur la page.
   useEffect(() => {
-    if (!service || !staff || !date || time) return;
+    if (!service || !staff || !date || time) {
+      return;
+    }
 
-    const refresh = () => {
+    const refreshAvailability = () => {
       getAvailability(staff.id, service.id, date)
-        .then((res) => setSlots(res.slots))
+        .then((res) => {
+          setSlots(res.slots);
+        })
         .catch(() => {});
     };
 
-    const interval = setInterval(refresh, 60000);
+    const interval = setInterval(
+      refreshAvailability,
+      60000
+    );
 
-    const onVisible = () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        refresh();
+        refreshAvailability();
       }
     };
 
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", refresh);
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    window.addEventListener(
+      "focus",
+      refreshAvailability
+    );
 
     return () => {
       clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", refresh);
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+
+      window.removeEventListener(
+        "focus",
+        refreshAvailability
+      );
     };
   }, [service, staff, date, time]);
 
+  // Détermination de l'étape actuelle
   const step: Step = confirmation
     ? "confirmed"
     : !service
@@ -129,25 +165,38 @@ export default function BookingPage() {
       ? stepOrder.length
       : stepOrder.indexOf(step);
 
+  // Retour à une étape précédente
   function resetFrom(target: Step) {
     if (target === "service") {
       setService(null);
       setStaff(null);
       setDate(null);
       setTime(null);
-    } else if (target === "staff") {
+      return;
+    }
+
+    if (target === "staff") {
       setStaff(null);
       setDate(null);
       setTime(null);
-    } else if (target === "date") {
+      return;
+    }
+
+    if (target === "date") {
       setDate(null);
       setTime(null);
-    } else if (target === "slot") {
+      return;
+    }
+
+    if (target === "slot") {
       setTime(null);
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Création de la réservation
+  async function handleSubmit(
+    e: React.FormEvent<HTMLFormElement>
+  ) {
     e.preventDefault();
     setFormError(null);
 
@@ -159,12 +208,14 @@ export default function BookingPage() {
       return;
     }
 
-    if (!service || !staff || !date || !time) return;
+    if (!service || !staff || !date || !time) {
+      return;
+    }
 
     setSubmitting(true);
 
     try {
-      const res = await createBooking({
+      const result = await createBooking({
         staffId: staff.id,
         serviceId: service.id,
         date,
@@ -173,19 +224,23 @@ export default function BookingPage() {
         clientPhone: clientPhone.trim(),
       });
 
-      setConfirmation(res);
-    } catch (err) {
+      setConfirmation(result);
+    } catch (error) {
       if (
-        err instanceof ApiRequestError &&
-        err.code === "SLOT_UNAVAILABLE"
+        error instanceof ApiRequestError &&
+        error.code === "SLOT_UNAVAILABLE"
       ) {
         setFormError(t.slotTaken);
         setTime(null);
 
         if (service && staff && date) {
-          getAvailability(staff.id, service.id, date).then((r) =>
-            setSlots(r.slots)
-          );
+          getAvailability(
+            staff.id,
+            service.id,
+            date
+          ).then((result) => {
+            setSlots(result.slots);
+          });
         }
       } else {
         setFormError(t.errorGeneric);
@@ -195,26 +250,28 @@ export default function BookingPage() {
     }
   }
 
+  // Nouvelle réservation
   function startOver() {
     setConfirmation(null);
     setService(null);
     setStaff(null);
     setDate(null);
     setTime(null);
+
     setClientName("");
     setClientPhone("");
     setFormError(null);
   }
 
   return (
-    <div dir={dir} className="min-h-screen flex flex-col">
+    <div
+      dir={dir}
+      className="min-h-screen flex flex-col"
+    >
+      {/* ================= HEADER ================= */}
       <header className="sticky top-0 z-10 bg-ink-950/90 backdrop-blur border-b border-ink-800 px-4 py-3 flex items-center justify-between">
-        
-        {/* ================================================= */}
-        {/* LOGO / NOM DU SALON */}
-        {/* ================================================= */}
         <div className="flex items-center">
-          <p className="font-semibold text-gold-500 text-base">
+          <p className="font-semibold text-zinc-100 text-base">
             {t.brand}
           </p>
         </div>
@@ -222,7 +279,9 @@ export default function BookingPage() {
         <LanguageToggle />
       </header>
 
+      {/* ================= MAIN ================= */}
       <main className="flex-1 px-4 py-5 max-w-md mx-auto w-full">
+        {/* Progression */}
         {step !== "confirmed" && (
           <>
             <p className="text-zinc-400 text-sm mb-4">
@@ -230,11 +289,11 @@ export default function BookingPage() {
             </p>
 
             <div className="flex items-center gap-1.5 mb-6">
-              {stepOrder.map((s, i) => (
+              {stepOrder.map((currentStep, index) => (
                 <div
-                  key={s}
+                  key={currentStep}
                   className={`h-1.5 flex-1 rounded-full transition-colors ${
-                    i <= currentIndex
+                    index <= currentIndex
                       ? "bg-gold-500"
                       : "bg-ink-800"
                   }`}
@@ -244,17 +303,19 @@ export default function BookingPage() {
           </>
         )}
 
+        {/* Chargement */}
         {loadingCatalog && step !== "confirmed" && (
           <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3].map((item) => (
               <div
-                key={i}
+                key={item}
                 className="h-16 rounded-xl2 bg-ink-800 animate-pulse"
               />
             ))}
           </div>
         )}
 
+        {/* ================= SERVICE ================= */}
         {!loadingCatalog && step === "service" && (
           <section className="animate-fade-in-up">
             <h2 className="text-lg font-semibold mb-3">
@@ -263,12 +324,13 @@ export default function BookingPage() {
 
             <ServiceSelector
               services={services}
-              selectedId={service?.["id"] ?? null}
+              selectedId={service?.id ?? null}
               onSelect={setService}
             />
           </section>
         )}
 
+        {/* ================= BARBIER ================= */}
         {!loadingCatalog && step === "staff" && (
           <section className="animate-fade-in-up">
             <BackBar
@@ -285,6 +347,7 @@ export default function BookingPage() {
           </section>
         )}
 
+        {/* ================= DATE ================= */}
         {step === "date" && (
           <section className="animate-fade-in-up">
             <BackBar
@@ -300,6 +363,7 @@ export default function BookingPage() {
           </section>
         )}
 
+        {/* ================= CRÉNEAU ================= */}
         {step === "slot" && service && (
           <section className="animate-fade-in-up">
             <BackBar
@@ -318,6 +382,7 @@ export default function BookingPage() {
           </section>
         )}
 
+        {/* ================= INFORMATIONS CLIENT ================= */}
         {step === "details" &&
           service &&
           staff &&
@@ -330,6 +395,7 @@ export default function BookingPage() {
                 backLabel={t.back}
               />
 
+              {/* Résumé */}
               <div className="card px-4 py-3 mb-4 text-sm space-y-1 text-zinc-300">
                 <SummaryLine
                   label={t.service}
@@ -347,7 +413,9 @@ export default function BookingPage() {
 
                 <SummaryLine
                   label={t.date}
-                  value={dayjs(date).format("dddd D MMMM")}
+                  value={dayjs(date).format(
+                    "dddd D MMMM"
+                  )}
                 />
 
                 <SummaryLine
@@ -356,6 +424,7 @@ export default function BookingPage() {
                 />
               </div>
 
+              {/* Formulaire */}
               <form
                 onSubmit={handleSubmit}
                 className="space-y-3"
@@ -368,10 +437,14 @@ export default function BookingPage() {
                   <input
                     className="input-field"
                     value={clientName}
-                    onChange={(e) =>
-                      setClientName(e.target.value)
+                    onChange={(event) =>
+                      setClientName(
+                        event.target.value
+                      )
                     }
-                    placeholder={t.fullNamePlaceholder}
+                    placeholder={
+                      t.fullNamePlaceholder
+                    }
                     required
                   />
                 </div>
@@ -384,10 +457,14 @@ export default function BookingPage() {
                   <input
                     className="input-field"
                     value={clientPhone}
-                    onChange={(e) =>
-                      setClientPhone(e.target.value)
+                    onChange={(event) =>
+                      setClientPhone(
+                        event.target.value
+                      )
                     }
-                    placeholder={t.phonePlaceholder}
+                    placeholder={
+                      t.phonePlaceholder
+                    }
                     type="tel"
                     required
                   />
@@ -412,6 +489,7 @@ export default function BookingPage() {
             </section>
           )}
 
+        {/* ================= CONFIRMATION ================= */}
         {step === "confirmed" && confirmation && (
           <ConfirmationView
             confirmation={confirmation}
@@ -420,6 +498,7 @@ export default function BookingPage() {
         )}
       </main>
 
+      {/* ================= FOOTER ================= */}
       <footer className="px-4 py-6 text-center space-y-3">
         <div>
           <a
@@ -445,6 +524,7 @@ export default function BookingPage() {
           </a>
         </div>
 
+        {/* Accès administrateur */}
         <Link
           to="/admin"
           className="block text-xs text-zinc-600 hover:text-gold-500 transition-colors"
@@ -455,6 +535,10 @@ export default function BookingPage() {
     </div>
   );
 }
+
+/* ================================================= */
+/* BACK BAR */
+/* ================================================= */
 
 function BackBar({
   label,
@@ -472,6 +556,7 @@ function BackBar({
       </h2>
 
       <button
+        type="button"
         onClick={onBack}
         className="text-sm text-gold-500 hover:text-gold-400"
       >
@@ -480,6 +565,10 @@ function BackBar({
     </div>
   );
 }
+
+/* ================================================= */
+/* SUMMARY LINE */
+/* ================================================= */
 
 function SummaryLine({
   label,
@@ -500,6 +589,10 @@ function SummaryLine({
     </div>
   );
 }
+
+/* ================================================= */
+/* CONFIRMATION */
+/* ================================================= */
 
 function ConfirmationView({
   confirmation,
@@ -525,6 +618,7 @@ function ConfirmationView({
 
   return (
     <section className="animate-fade-in-up text-center">
+      {/* Icône de confirmation */}
       <div className="w-16 h-16 mx-auto rounded-full bg-gold-500/15 border border-gold-500 flex items-center justify-center text-3xl mb-4">
         ✅
       </div>
@@ -540,6 +634,7 @@ function ConfirmationView({
         </span>
       </p>
 
+      {/* Détails */}
       <div className="card px-4 py-4 text-start space-y-2.5 mb-4">
         <SummaryLine
           label={t.service}
@@ -553,9 +648,9 @@ function ConfirmationView({
 
         <SummaryLine
           label={t.date}
-          value={dayjs(appointment.date).format(
-            "dddd D MMMM"
-          )}
+          value={dayjs(
+            appointment.date
+          ).format("dddd D MMMM")}
         />
 
         <SummaryLine
@@ -564,6 +659,7 @@ function ConfirmationView({
         />
       </div>
 
+      {/* Informations supplémentaires */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="card px-3 py-4">
           <p className="text-2xl font-bold text-gold-500">
@@ -586,7 +682,9 @@ function ConfirmationView({
         </div>
       </div>
 
+      {/* Nouvelle réservation */}
       <button
+        type="button"
         onClick={onNewBooking}
         className="btn-secondary w-full"
       >
