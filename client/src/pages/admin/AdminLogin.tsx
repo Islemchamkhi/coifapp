@@ -42,11 +42,11 @@ export default function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
         {/* Logo rond */}
         <div className="w-14 h-14 mx-auto rounded-full border-2 border-gold-500 overflow-hidden flex items-center justify-center mb-4">
           <img
-            src="/icons/icon-192.png"
-            alt={t.brand}
-            className="w-full h-full object-cover rounded-full"
+          src="/icons/icon-192.png"
+          alt={t.brand}
+          className="w-full h-full object-contain"
           />
-        </div>
+</div>
 
         <h1 className="text-lg font-semibold text-center mb-6">
           {t.adminLoginTitle}
