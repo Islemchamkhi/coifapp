@@ -12,26 +12,46 @@ export interface ServiceItem {
   active: 0 | 1;
 }
 
-export type AppointmentStatus = "confirmed" | "cancelled" | "completed" | "blocked";
+export type AppointmentStatus =
+  | "confirmed"
+  | "pending"
+  | "cancelled"
+  | "completed"
+  | "blocked";
 
 export interface Appointment {
   id: string;
+
   staff_id: number;
   service_id: number | null;
+
   date: string;
   start_time: string;
   end_time: string;
+
   client_name: string | null;
   client_phone: string | null;
+
   status: AppointmentStatus;
+
   notes: string | null;
+
   created_at: string;
+
   staff_name?: string;
   service_name_fr?: string;
   service_duration?: number;
+
+  // Données de suivi du rendez-vous
+  arrived_at?: string | null;
+  completed_at?: string | null;
+  delay_minutes?: number;
 }
 
-export type SlotStatus = "available" | "booked";
+export type SlotStatus =
+  | "available"
+  | "booked"
+  | "request";
 
 export interface SlotWithStatus {
   time: string;
@@ -63,25 +83,48 @@ export interface ClientRow {
 }
 
 export interface StatsResponse {
-  totals: { total: number; cancelled: number; confirmed: number };
-  byStaff: { staff_name: string; total: number }[];
-  byService: { service_name: string; total: number }[];
-  byHour: { hour: string; total: number }[];
+  totals: {
+    total: number;
+    cancelled: number;
+    confirmed: number;
+  };
+
+  byStaff: {
+    staff_name: string;
+    total: number;
+  }[];
+
+  byService: {
+    service_name: string;
+    total: number;
+  }[];
+
+  byHour: {
+    hour: string;
+    total: number;
+  }[];
+
   todayCount: number;
 }
 
 export interface AdminNotification {
   id: string;
   type: string;
+
   appointment_id: string | null;
+
   title: string;
   message: string;
+
   created_at: string;
+
   date?: string | null;
   start_time?: string | null;
+
   client_name?: string | null;
   service_name_fr?: string | null;
   staff_name?: string | null;
+
   read_at: string | null;
 }
 
