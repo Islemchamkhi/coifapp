@@ -9,6 +9,7 @@ interface Props {
   emptyMessage?: string;
   availableLabel?: string;
   bookedLabel?: string;
+  exceptionalLabel?: string;
 }
 
 export default function TimeSlotGrid({
@@ -19,6 +20,7 @@ export default function TimeSlotGrid({
   emptyMessage,
   availableLabel,
   bookedLabel,
+  exceptionalLabel,
 }: Props) {
   if (loading) {
     return (
@@ -60,7 +62,7 @@ export default function TimeSlotGrid({
         const label = booked
           ? bookedLabel
           : exceptional
-          ? "Demande"
+          ? exceptionalLabel
           : availableLabel;
 
         return (

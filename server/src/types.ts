@@ -52,3 +52,21 @@ export interface AvailabilitySlot {
   time: string; // HH:mm
   available: boolean;
 }
+
+export interface Notification {
+  id: string;
+  type: string;
+  appointment_id: string | null;
+
+  title: string;
+  message: string;
+
+  date: string | null;
+  start_time: string | null;
+  client_name: string | null;
+  service_name_fr: string | null;
+  staff_name: string | null;
+
+  read_at: string | null;
+  created_at: string;
+}

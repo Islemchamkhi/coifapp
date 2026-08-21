@@ -420,7 +420,7 @@ export default function BookingPage() {
       )
     ) {
       setFormError(
-        "Veuillez saisir une heure valide au format HH:mm."
+        t.invalidCustomTime
       );
       return;
     }
@@ -718,6 +718,9 @@ export default function BookingPage() {
                 bookedLabel={
                   t.slotBooked
                 }
+                exceptionalLabel={
+                  t.exceptionalSlot
+                }
               />
 
               {/* Légende */}
@@ -744,13 +747,11 @@ export default function BookingPage() {
               {/* ================= HEURE PERSONNALISÉE ================= */}
               <div className="mt-5 border-t border-ink-800 pt-4">
                 <p className="text-sm font-medium text-zinc-200 mb-2">
-                  Choisir une autre heure
+                  {t.customTimeTitle}
                 </p>
 
                 <p className="text-xs text-zinc-500 mb-3">
-                  Vous pouvez saisir une heure précise.
-                  La disponibilité sera vérifiée selon
-                  la durée complète du service.
+                  {t.customTimeHint}
                 </p>
 
                 <div className="flex gap-2">
@@ -769,7 +770,7 @@ export default function BookingPage() {
                       )
                     }
                     className="input-field flex-1"
-                    aria-label="Heure personnalisée"
+                    aria-label={t.customTimeAriaLabel}
                   />
 
                   <button
@@ -781,7 +782,7 @@ export default function BookingPage() {
                         )
                       ) {
                         setFormError(
-                          "Veuillez saisir une heure valide."
+                          t.invalidCustomTime
                         );
                         return;
                       }
@@ -809,7 +810,7 @@ export default function BookingPage() {
                         : "border-ink-800 bg-ink-900 text-zinc-600 cursor-not-allowed"
                     }`}
                   >
-                    Utiliser
+                    {t.useCustomTimeButton}
                   </button>
                 </div>
 
@@ -817,7 +818,7 @@ export default function BookingPage() {
                   customTime && (
                     <div className="mt-3 rounded-xl border border-gold-500/40 bg-gold-500/10 px-3 py-2">
                       <p className="text-sm text-gold-400">
-                        Heure personnalisée :
+                        {t.customTimeSelectedLabel}
                         <span className="font-semibold ml-1">
                           {customTime}
                         </span>
@@ -841,7 +842,7 @@ export default function BookingPage() {
                         }}
                         className="text-xs text-zinc-400 hover:text-zinc-200 mt-1 underline"
                       >
-                        Choisir un autre créneau
+                        {t.chooseAnotherSlot}
                       </button>
                     </div>
                   )}
@@ -859,11 +860,11 @@ export default function BookingPage() {
               {/* Résumé de la durée */}
               <div className="mt-4 rounded-xl bg-ink-900 border border-ink-800 px-3 py-3">
                 <p className="text-xs text-zinc-500">
-                  Durée du service
+                  {t.serviceDurationLabel}
                 </p>
 
                 <p className="text-sm text-zinc-200 mt-1">
-                  {service.duration_minutes} minutes
+                  {service.duration_minutes} {t.minutesShort}
                 </p>
               </div>
             </section>
@@ -929,7 +930,7 @@ export default function BookingPage() {
                 />
 
                 <SummaryLine
-                  label="Durée"
+                  label={t.duration}
                   value={`${service.duration_minutes} min`}
                 />
               </div>
@@ -1211,7 +1212,7 @@ function ConfirmationView({
         />
 
         <SummaryLine
-          label="Durée"
+          label={t.duration}
           value={`${service.duration_minutes} min`}
         />
       </div>

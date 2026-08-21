@@ -53,6 +53,9 @@ export default function ClientsTab() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm truncate">{c.client_name || c.client_phone}</p>
                 <p className="text-xs text-zinc-500">{c.client_phone}</p>
+                <p className="text-[10px] text-zinc-600">
+                  {t.firstVisit}: {dayjs(c.first_visit).format("D MMM YYYY")}
+                </p>
               </div>
               <div className="text-end shrink-0">
                 <p className="text-sm font-semibold text-gold-500">{c.total_appointments}</p>
@@ -81,10 +84,14 @@ export default function ClientsTab() {
                   <div>
                     <p className="font-medium">
                       {dayjs(h.date).format("D MMM YYYY")} • {h.start_time}
+                      {h.service_duration ? ` (${h.service_duration} min)` : ""}
                     </p>
                     <p className="text-xs text-zinc-500">
                       {h.staff_name} • {h.service_name_fr}
                     </p>
+                    {h.notes && (
+                      <p className="text-xs text-zinc-600 italic">{h.notes}</p>
+                    )}
                   </div>
                   <span className="text-xs text-zinc-400">{t[h.status as keyof typeof t] as string}</span>
                 </div>

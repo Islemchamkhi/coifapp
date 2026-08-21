@@ -407,7 +407,50 @@ export function createBooking(
 
     /**
      * ========================================================
-     * ÉTAPE 6
+     * ÉTAPE 6 bis
+     * NOTIFICATION ADMIN
+     * ========================================================
+     *
+     * Créée dans la même transaction que le rendez-vous : soit
+     * les deux sont enregistrés, soit aucun des deux ne l'est.
+     * Les informations sont dénormalisées (nom du service,
+     * du coiffeur) pour que la notification reste lisible même
+     * si le rendez-vous est modifié ou annulé par la suite.
+     */
+    const notificationId = uuidv4();
+
+    db.prepare(
+      `
+      INSERT INTO notifications
+      (
+        id,
+        type,
+        appointment_id,
+        title,
+        message,
+        date,
+        start_time,
+        client_name,
+        service_name_fr,
+        staff_name
+      )
+      VALUES (?, 'new_booking', ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      notificationId,
+      appointment.id,
+      "Nouvelle réservation",
+      `${clientName} — ${service.name_fr} (${durationMinutes} min) avec ${staff.name} le ${input.date} à ${input.time}`,
+      appointment.date,
+      appointment.start_time,
+      clientName,
+      service.name_fr,
+      staff.name
+    );
+
+    /**
+     * ========================================================
+     * ÉTAPE 7
      * NOMBRE DE CLIENTS AVANT
      * ========================================================
      */

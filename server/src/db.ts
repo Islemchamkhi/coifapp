@@ -69,6 +69,31 @@ CREATE INDEX IF NOT EXISTS idx_appt_phone
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
   ON appointments(staff_id, date, start_time)
   WHERE status IN ('confirmed', 'blocked');
+
+-- Notifications admin (nouvelle réservation, etc.)
+-- Table purement additive : ne touche jamais aux données existantes.
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'new_booking',
+  appointment_id TEXT REFERENCES appointments(id),
+
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+
+  -- Copie dénormalisée au moment de la création : la notification reste
+  -- lisible même si le rendez-vous est ensuite modifié ou annulé.
+  date TEXT,
+  start_time TEXT,
+  client_name TEXT,
+  service_name_fr TEXT,
+  staff_name TEXT,
+
+  read_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_read_created
+  ON notifications(read_at, created_at);
 `);
 
 /*

@@ -108,22 +108,29 @@ export function getBusySlotsForStaffDate(
 
 /**
  * ============================================================
- * PAS DES CRÉNEAUX NORMAUX
+ * PAS DES CRÉNEAUX (GRANULARITÉ DE RECHERCHE)
  * ============================================================
  *
- * Pour l'affichage automatique :
+ * IMPORTANT — CORRECTIF :
+ * Le pas ne doit JAMAIS être calé sur la durée du service.
  *
- * 20 min -> 20 min
- * 30 min -> 30 min
- * 45 min -> 45 min
- * 60 min -> 60 min
+ * Avant : step = durationMinutes (ex: 60 min) faisait sauter
+ * la grille de 08:00 à 09:00 à 10:00... et ratait complètement
+ * un vrai créneau libre comme 09:45 (juste après la fin d'un
+ * rendez-vous existant de 09:00->09:45), car 09:45 n'est pas un
+ * multiple de 60 depuis 08:00.
+ *
+ * Cela contredit directement la règle métier : "le système doit
+ * proposer la première heure réellement possible" — la grille
+ * doit pouvoir se caler sur la fin de N'IMPORTE QUEL rendez-vous
+ * existant, pas seulement sur des multiples de la durée choisie.
+ *
+ * Un pas fixe et fin (5 min) couvre tous les cas réels (les
+ * rendez-vous démarrent à des multiples de 5 : 00, 05, 15, 20,
+ * 30, 45...) sans exploser la taille de la grille affichée.
  */
 function getSlotStepMinutes(durationMinutes: number): number {
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
-    return 10;
-  }
-
-  return Math.floor(durationMinutes);
+  return 5;
 }
 
 /**

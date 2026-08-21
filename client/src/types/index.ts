@@ -56,6 +56,7 @@ export type SlotStatus =
 export interface SlotWithStatus {
   time: string;
   status: SlotStatus;
+  isExceptional?: boolean;
 }
 
 export interface AvailabilityResponse {
@@ -78,6 +79,7 @@ export interface ClientRow {
   client_phone: string;
   client_name: string;
   total_appointments: number;
+  first_visit: string;
   last_visit: string;
   cancellations: number;
 }
@@ -126,6 +128,11 @@ export interface AdminNotification {
   staff_name?: string | null;
 
   read_at: string | null;
+}
+
+export interface NotificationsResponse {
+  notifications: AdminNotification[];
+  unreadCount: number;
 }
 
 export interface ApiError {

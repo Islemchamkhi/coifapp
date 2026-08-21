@@ -16,6 +16,8 @@ import AppointmentFormModal from "../../components/AppointmentFormModal";
 const statusColors: Record<string, string> = {
   confirmed:
     "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  pending:
+    "bg-amber-500/15 text-amber-400 border-amber-500/30",
   cancelled:
     "bg-red-500/15 text-red-400 border-red-500/30",
   completed:
@@ -38,6 +40,12 @@ export default function AppointmentsTab() {
   // Filtre coiffeur
   // --------------------------------------------------
   const [staffFilter, setStaffFilter] = useState<number | "all">("all");
+
+  // --------------------------------------------------
+  // Filtre statut (inclut désormais "pending" pour les
+  // demandes exceptionnelles 20h-21h)
+  // --------------------------------------------------
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // --------------------------------------------------
   // Données
@@ -77,6 +85,10 @@ export default function AppointmentsTab() {
             staffFilter === "all"
               ? undefined
               : staffFilter,
+          status:
+            statusFilter === "all"
+              ? undefined
+              : statusFilter,
         }),
         adminGetStaff(),
         adminGetServices(),
@@ -107,7 +119,7 @@ export default function AppointmentsTab() {
 
     // load est volontairement exclu des dépendances.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, staffFilter]);
+  }, [date, staffFilter, statusFilter]);
 
   // --------------------------------------------------
   // Annulation MANUELLE uniquement
@@ -168,6 +180,20 @@ export default function AppointmentsTab() {
               {staff.name}
             </option>
           ))}
+        </select>
+
+        {/* Statut */}
+        <select
+          className="input-field w-auto"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="all">{t.allStatuses}</option>
+          <option value="confirmed">{t.confirmed}</option>
+          <option value="pending">{t.pending}</option>
+          <option value="completed">{t.completed}</option>
+          <option value="cancelled">{t.cancelled}</option>
+          <option value="blocked">{t.blocked}</option>
         </select>
 
         <div className="flex-1" />
@@ -296,6 +322,7 @@ export default function AppointmentsTab() {
                   t[
                     appointment.status as
                       | "confirmed"
+                      | "pending"
                       | "cancelled"
                       | "completed"
                       | "blocked"

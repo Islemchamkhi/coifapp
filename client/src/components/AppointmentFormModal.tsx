@@ -200,6 +200,7 @@ export default function AppointmentFormModal({
                     onChange={(e) => setStatus(e.target.value as typeof status)}
                   >
                     <option value="confirmed">{t.confirmed}</option>
+                    <option value="pending">{t.pending}</option>
                     <option value="completed">{t.completed}</option>
                     <option value="cancelled">{t.cancelled}</option>
                   </select>

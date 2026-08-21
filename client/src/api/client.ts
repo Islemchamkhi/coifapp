@@ -7,6 +7,7 @@ import {
   Appointment,
   ClientRow,
   StatsResponse,
+  NotificationsResponse,
 } from "../types";
 
 const BASE = "/api";
@@ -76,10 +77,13 @@ export const adminLogin = async (password: string) => {
 export const adminLogout = () => localStorage.removeItem(ADMIN_TOKEN_KEY);
 export const isAdminAuthed = () => !!localStorage.getItem(ADMIN_TOKEN_KEY);
 
-export const adminGetAppointments = (params: { date?: string; staffId?: number } = {}) => {
+export const adminGetAppointments = (
+  params: { date?: string; staffId?: number; status?: string } = {}
+) => {
   const qs = new URLSearchParams();
   if (params.date) qs.set("date", params.date);
   if (params.staffId) qs.set("staffId", String(params.staffId));
+  if (params.status) qs.set("status", params.status);
   return request<Appointment[]>(`/admin/appointments?${qs.toString()}`, {}, true);
 };
 
@@ -114,5 +118,15 @@ export const adminGetStats = (from?: string, to?: string) => {
   if (to) qs.set("to", to);
   return request<StatsResponse>(`/admin/stats?${qs.toString()}`, {}, true);
 };
+
+// ---------- Admin: Notifications ----------
+export const adminGetNotifications = (limit = 50) =>
+  request<NotificationsResponse>(`/admin/notifications?limit=${limit}`, {}, true);
+
+export const adminMarkNotificationRead = (id: string) =>
+  request<{ ok: boolean }>(`/admin/notifications/${id}/read`, { method: "POST" }, true);
+
+export const adminMarkAllNotificationsRead = () =>
+  request<{ ok: boolean }>(`/admin/notifications/mark-all-read`, { method: "POST" }, true);
 
 export { ApiRequestError };

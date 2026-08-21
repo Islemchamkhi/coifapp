@@ -66,6 +66,12 @@ router.get("/appointments", (req, res) => {
     ? Number(req.query.staffId)
     : undefined;
 
+  const status =
+    typeof req.query.status === "string" &&
+    req.query.status !== "all"
+      ? req.query.status
+      : undefined;
+
   let query = `
     SELECT
       a.*,
@@ -88,6 +94,11 @@ router.get("/appointments", (req, res) => {
   if (staffId) {
     query += " AND a.staff_id = ?";
     params.push(staffId);
+  }
+
+  if (status) {
+    query += " AND a.status = ?";
+    params.push(status);
   }
 
   query += `
@@ -837,6 +848,10 @@ router.get("/clients", (req, res) => {
 
         COUNT(*) AS total_appointments,
 
+        MIN(
+          date || ' ' || start_time
+        ) AS first_visit,
+
         MAX(
           date || ' ' || start_time
         ) AS last_visit,
@@ -877,6 +892,7 @@ router.get(
         SELECT
           a.*,
           s.name_fr AS service_name_fr,
+          s.duration_minutes AS service_duration,
           st.name AS staff_name
 
         FROM appointments a
@@ -1068,6 +1084,63 @@ router.get("/stats", (req, res) => {
     byHour,
     todayCount: todayCount.c,
   });
+});
+
+// =========================================================
+// NOTIFICATIONS
+// =========================================================
+
+router.get("/notifications", (req, res) => {
+  const limit = Math.min(
+    Number(req.query.limit) || 50,
+    200
+  );
+
+  const rows = db
+    .prepare(
+      `
+      SELECT *
+      FROM notifications
+      ORDER BY created_at DESC
+      LIMIT ?
+      `
+    )
+    .all(limit);
+
+  const unread = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM notifications WHERE read_at IS NULL`
+    )
+    .get() as { c: number };
+
+  res.json({ notifications: rows, unreadCount: unread.c });
+});
+
+router.post("/notifications/:id/read", (req, res) => {
+  const existing = db
+    .prepare("SELECT id FROM notifications WHERE id = ?")
+    .get(req.params.id);
+
+  if (!existing) {
+    return res.status(404).json({
+      error: "NOT_FOUND",
+      message: "Notification introuvable.",
+    });
+  }
+
+  db.prepare(
+    `UPDATE notifications SET read_at = datetime('now') WHERE id = ?`
+  ).run(req.params.id);
+
+  res.json({ ok: true });
+});
+
+router.post("/notifications/mark-all-read", (_req, res) => {
+  db.prepare(
+    `UPDATE notifications SET read_at = datetime('now') WHERE read_at IS NULL`
+  ).run();
+
+  res.json({ ok: true });
 });
 
 export default router;
