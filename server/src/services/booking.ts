@@ -332,6 +332,10 @@ export function createBooking(
      */
     const id = uuidv4();
 
+    // Par défaut (réservation SANS compte / invité) : accountClientId
+    // reste null, et finalClientName/finalClientPhone restent les
+    // valeurs saisies dans le formulaire. Rien n'est modifié dans
+    // ce chemin par rapport à l'original.
     let accountClientId: number | null = input.clientId ?? null;
     let finalClientName = clientName;
     let finalClientPhone = clientPhone;
@@ -342,17 +346,20 @@ export function createBooking(
         .get(accountClientId) as { id: number; name: string; phone: string } | undefined;
 
       if (!client) {
-        throw new BookingError(
-          "CLIENT_NOT_FOUND",
-          "Compte client introuvable. Veuillez vous reconnecter."
-        );
+        // Le token JWT est valide mais le compte auquel il fait
+        // référence n'existe plus (ex : base SQLite réinitialisée
+        // lors d'un redéploiement). Conformément à la philosophie
+        // de optionalClientAuth (« ne jamais bloquer une réservation »),
+        // on bascule simplement en mode invité au lieu de faire
+        // échouer la réservation avec une erreur opaque pour l'utilisateur.
+        accountClientId = null;
+      } else {
+        // Pour un compte connecté valide, les coordonnées de la
+        // réservation proviennent toujours du compte validé côté serveur.
+        accountClientId = client.id;
+        finalClientName = client.name;
+        finalClientPhone = client.phone;
       }
-
-      // Pour un compte connecté, les coordonnées de la réservation
-      // proviennent toujours du compte validé côté serveur.
-      accountClientId = client.id;
-      finalClientName = client.name;
-      finalClientPhone = client.phone;
     }
 
     try {

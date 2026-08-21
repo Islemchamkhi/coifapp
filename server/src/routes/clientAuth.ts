@@ -389,13 +389,183 @@ router.get(
 
 /**
  * ============================================================
+ * UPDATE MY PROFILE
+ * ============================================================
+ *
+ * PUT /api/client-auth/me
+ */
+router.put(
+  "/me",
+  requireClient,
+  (req: ClientAuthedRequest, res) => {
+    try {
+      const clientId = req.clientId;
+
+      if (!clientId) {
+        return res.status(401).json({
+          error: "UNAUTHORIZED",
+          message:
+            "Authentification client requise.",
+        });
+      }
+
+      const name = normalizeName(req.body?.name);
+      const phone = normalizePhone(req.body?.phone);
+      const email = normalizeEmail(req.body?.email);
+
+      if (!name || !phone || !email) {
+        return res.status(400).json({
+          error: "MISSING_FIELDS",
+          message:
+            "Nom, téléphone et email sont requis.",
+        });
+      }
+
+      if (name.length < 2) {
+        return res.status(400).json({
+          error: "INVALID_NAME",
+          message: "Le nom est invalide.",
+        });
+      }
+
+      if (phone.length < 6) {
+        return res.status(400).json({
+          error: "INVALID_PHONE",
+          message: "Le numéro de téléphone est invalide.",
+        });
+      }
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({
+          error: "INVALID_EMAIL",
+          message: "L'adresse email est invalide.",
+        });
+      }
+
+      const existingByEmail = db
+        .prepare(
+          `
+          SELECT id
+          FROM clients
+          WHERE email = ?
+            AND id != ?
+          LIMIT 1
+          `
+        )
+        .get(email, clientId) as { id: number } | undefined;
+
+      if (existingByEmail) {
+        return res.status(409).json({
+          error: "EMAIL_ALREADY_EXISTS",
+          message:
+            "Un compte existe déjà avec cette adresse email.",
+        });
+      }
+
+      const existingByPhone = db
+        .prepare(
+          `
+          SELECT id
+          FROM clients
+          WHERE phone = ?
+            AND id != ?
+          LIMIT 1
+          `
+        )
+        .get(phone, clientId) as { id: number } | undefined;
+
+      if (existingByPhone) {
+        return res.status(409).json({
+          error: "PHONE_ALREADY_EXISTS",
+          message:
+            "Un compte existe déjà avec ce numéro de téléphone.",
+        });
+      }
+
+      db.prepare(
+        `
+        UPDATE clients
+        SET
+          name = ?,
+          phone = ?,
+          email = ?,
+          updated_at = datetime('now')
+        WHERE id = ?
+        `
+      ).run(name, phone, email, clientId);
+
+      const client = db
+        .prepare(
+          `
+          SELECT
+            id,
+            name,
+            phone,
+            email,
+            created_at,
+            updated_at
+          FROM clients
+          WHERE id = ?
+          LIMIT 1
+          `
+        )
+        .get(clientId) as
+        | {
+            id: number;
+            name: string;
+            phone: string;
+            email: string;
+            created_at: string;
+            updated_at: string;
+          }
+        | undefined;
+
+      if (!client) {
+        return res.status(401).json({
+          error: "CLIENT_NOT_FOUND",
+          message:
+            "Compte client introuvable.",
+        });
+      }
+
+      return res.status(200).json({
+        client: sanitizeClient(client),
+      });
+    } catch (error) {
+      console.error(
+        "❌ Client profile update error:",
+        error
+      );
+
+      if (
+        error instanceof Error &&
+        /UNIQUE constraint failed/i.test(error.message)
+      ) {
+        return res.status(409).json({
+          error: "CLIENT_ALREADY_EXISTS",
+          message:
+            "Un compte existe déjà avec ces informations.",
+        });
+      }
+
+      return res.status(500).json({
+        error: "UPDATE_FAILED",
+        message:
+          "Impossible de mettre à jour le compte client.",
+      });
+    }
+  }
+);
+
+/**
+ * ============================================================
  * MY APPOINTMENTS
  * ============================================================
  *
- * GET /api/client-auth/appointments
+ * GET /api/client-auth/me/appointments
  */
 router.get(
-  "/appointments",
+  "/me/appointments",
   requireClient,
   (req: ClientAuthedRequest, res) => {
     try {
@@ -461,10 +631,10 @@ router.get(
  * CANCEL MY APPOINTMENT
  * ============================================================
  *
- * DELETE /api/client-auth/appointments/:id
+ * DELETE /api/client-auth/me/appointments/:id
  */
 router.delete(
-  "/appointments/:id",
+  "/me/appointments/:id",
   requireClient,
   (req: ClientAuthedRequest, res) => {
     try {
