@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Link } from "react-router-dom";
+import { useClientAuth } from "../auth/ClientAuthContext";
 
 import { useLanguage } from "../i18n/LanguageContext";
 import LanguageToggle from "../components/LanguageToggle";
@@ -34,6 +35,7 @@ type Step =
 
 export default function BookingPage() {
   const { t, lang, dir } = useLanguage();
+  const { client } = useClientAuth();
 
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
@@ -77,6 +79,13 @@ export default function BookingPage() {
 
   const [confirmation, setConfirmation] =
     useState<BookingConfirmation | null>(null);
+
+  useEffect(() => {
+    if (client) {
+      setClientName(client.name);
+      setClientPhone(client.phone);
+    }
+  }, [client]);
 
   /**
    * ============================================================
@@ -531,8 +540,10 @@ export default function BookingPage() {
     setCustomTime("");
     setUseCustomTime(false);
 
-    setClientName("");
-    setClientPhone("");
+    if (!client) {
+      setClientName("");
+      setClientPhone("");
+    }
 
     setFormError(null);
   }
@@ -550,7 +561,14 @@ export default function BookingPage() {
           </p>
         </div>
 
-        <LanguageToggle />
+        <div className="flex items-center gap-2">
+          {client ? (
+            <Link to="/account" className="text-sm text-gold-400 hover:text-gold-300">{t.myAccount}</Link>
+          ) : (
+            <Link to="/auth" className="text-sm text-gold-400 hover:text-gold-300">{t.login}</Link>
+          )}
+          <LanguageToggle />
+        </div>
       </header>
 
       {/* ================= MAIN ================= */}

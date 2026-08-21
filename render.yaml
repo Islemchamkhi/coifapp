@@ -2,27 +2,40 @@ services:
   - type: web
     name: rayen-coif
     runtime: node
-    plan: free
+
+    # IMPORTANT :
+    # Persistent Disk incompatible avec Free.
+    # Utiliser un plan payant.
+    plan: starter
+
     branch: main
+
     buildCommand: >-
-      cd client && npm install && npm run build &&
-      cd ../server && npm install && npm run build
+      cd client &&
+      npm install &&
+      npm run build &&
+      cd ../server &&
+      npm install &&
+      npm run build
+
     startCommand: cd server && npm start
+
     healthCheckPath: /api/health
+
     envVars:
       - key: PORT
         value: 10000
+
       - key: ADMIN_PASSWORD
         sync: false
+
       - key: JWT_SECRET
         sync: false
-      # DB_PATH pointe vers le disque persistant déclaré ci-dessous.
-      # Sans ce disque (ou sans cette variable), server/data/salon.db
-      # vit sur le filesystem éphémère du conteneur et est perdu à
-      # chaque redéploiement / redémarrage : c'est la cause la plus
-      # probable de la disparition de l'historique des réservations.
+
+      # SQLite sera stockée sur le Persistent Disk.
       - key: DB_PATH
         value: /var/data/salon.db
+
     disk:
       name: rayen-coif-data
       mountPath: /var/data

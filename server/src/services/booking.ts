@@ -24,6 +24,7 @@ export interface CreateBookingInput {
   time: string;
   clientName: string;
   clientPhone: string;
+  clientId?: number | null;
 }
 
 export interface BookingConfirmation {
@@ -331,6 +332,29 @@ export function createBooking(
      */
     const id = uuidv4();
 
+    let accountClientId: number | null = input.clientId ?? null;
+    let finalClientName = clientName;
+    let finalClientPhone = clientPhone;
+
+    if (accountClientId !== null) {
+      const client = db
+        .prepare("SELECT id, name, phone FROM clients WHERE id = ?")
+        .get(accountClientId) as { id: number; name: string; phone: string } | undefined;
+
+      if (!client) {
+        throw new BookingError(
+          "CLIENT_NOT_FOUND",
+          "Compte client introuvable. Veuillez vous reconnecter."
+        );
+      }
+
+      // Pour un compte connecté, les coordonnées de la réservation
+      // proviennent toujours du compte validé côté serveur.
+      accountClientId = client.id;
+      finalClientName = client.name;
+      finalClientPhone = client.phone;
+    }
+
     try {
       db.prepare(
         `
@@ -344,9 +368,10 @@ export function createBooking(
           end_time,
           client_name,
           client_phone,
+          client_id,
           status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).run(
         id,
@@ -355,8 +380,9 @@ export function createBooking(
         input.date,
         input.time,
         endTime,
-        clientName,
-        clientPhone,
+        finalClientName,
+        finalClientPhone,
+        accountClientId,
         status
       );
     } catch (err) {
@@ -440,10 +466,10 @@ export function createBooking(
       notificationId,
       appointment.id,
       "Nouvelle réservation",
-      `${clientName} — ${service.name_fr} (${durationMinutes} min) avec ${staff.name} le ${input.date} à ${input.time}`,
+      `${finalClientName} — ${service.name_fr} (${durationMinutes} min) avec ${staff.name} le ${input.date} à ${input.time}`,
       appointment.date,
       appointment.start_time,
-      clientName,
+      finalClientName,
       service.name_fr,
       staff.name
     );

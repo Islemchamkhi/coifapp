@@ -75,6 +75,16 @@ export interface BookingConfirmation {
   estimatedTime: string;
 }
 
+
+export interface ClientAccount {
+  id: number;
+  name: string;
+  phone: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ClientRow {
   client_phone: string;
   client_name: string;

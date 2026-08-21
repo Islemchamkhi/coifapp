@@ -5,6 +5,7 @@ import { ServiceRow, Staff } from "../types.js";
 import { computeSlotsWithStatus } from "../services/availability.js";
 import { createBooking, BookingError } from "../services/booking.js";
 import { isValidDateStr } from "../lib/time.js";
+import { optionalClientAuth, ClientAuthedRequest } from "../middleware/clientAuth.js";
 
 const router = Router();
 
@@ -67,7 +68,7 @@ const createBookingSchema = z.object({
   clientPhone: z.string().min(6).max(30),
 });
 
-router.post("/bookings", (req, res) => {
+router.post("/bookings", optionalClientAuth, (req: ClientAuthedRequest, res) => {
   const parsed = createBookingSchema.safeParse(req.body);
   if (!parsed.success) {
     return res
@@ -76,7 +77,10 @@ router.post("/bookings", (req, res) => {
   }
 
   try {
-    const confirmation = createBooking(parsed.data);
+    const confirmation = createBooking({
+      ...parsed.data,
+      clientId: req.clientId ?? null,
+    });
     res.status(201).json(confirmation);
   } catch (err) {
     if (err instanceof BookingError) {

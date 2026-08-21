@@ -20,7 +20,15 @@ export function requireAdmin(req: AuthedRequest, res: Response, next: NextFuncti
   }
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload;
+
+    if (decoded.role !== "admin") {
+      return res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Accès refusé.",
+      });
+    }
+
     req.isAdmin = true;
     next();
   } catch {

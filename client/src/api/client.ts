@@ -12,6 +12,7 @@ import {
 
 const BASE = "/api";
 const ADMIN_TOKEN_KEY = "salon_admin_token";
+const CLIENT_TOKEN_KEY = "rayen_client_token";
 
 class ApiRequestError extends Error {
   code: string;
@@ -21,7 +22,7 @@ class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}, admin = false): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, admin = false, tokenKey?: string): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -29,6 +30,9 @@ async function request<T>(path: string, options: RequestInit = {}, admin = false
 
   if (admin) {
     const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  } else if (tokenKey) {
+    const token = localStorage.getItem(tokenKey);
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -62,7 +66,34 @@ export const createBooking = (payload: {
   request<BookingConfirmation>("/bookings", {
     method: "POST",
     body: JSON.stringify(payload),
+  }, false, CLIENT_TOKEN_KEY);
+
+// ---------- Client account ----------
+export const clientRegister = async (payload: { name: string; phone: string; email: string; password: string }) => {
+  const res = await request<{ token: string; client: import("../types").ClientAccount }>("/client-auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
+  localStorage.setItem(CLIENT_TOKEN_KEY, res.token);
+  return res;
+};
+
+export const clientLogin = async (identifier: string, password: string) => {
+  const res = await request<{ token: string; client: import("../types").ClientAccount }>("/client-auth/login", {
+    method: "POST",
+    body: JSON.stringify({ identifier, password }),
+  });
+  localStorage.setItem(CLIENT_TOKEN_KEY, res.token);
+  return res;
+};
+
+export const clientLogout = () => localStorage.removeItem(CLIENT_TOKEN_KEY);
+export const isClientAuthed = () => !!localStorage.getItem(CLIENT_TOKEN_KEY);
+
+export const clientGetMe = () => request<{ client: import("../types").ClientAccount }>("/client-auth/me", {}, false, CLIENT_TOKEN_KEY);
+export const clientGetAppointments = () => request<{ appointments: Appointment[] }>("/client-auth/me/appointments", {}, false, CLIENT_TOKEN_KEY);
+export const clientUpdateProfile = (payload: { name: string; phone: string; email: string }) =>
+  request<{ client: import("../types").ClientAccount }>("/client-auth/me", { method: "PUT", body: JSON.stringify(payload) }, false, CLIENT_TOKEN_KEY);
 
 // ---------- Admin ----------
 export const adminLogin = async (password: string) => {

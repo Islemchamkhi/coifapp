@@ -1,4 +1,5 @@
 import "dotenv/config";
+
 import express from "express";
 import cors from "cors";
 import path from "node:path";
@@ -7,24 +8,32 @@ import { fileURLToPath } from "node:url";
 
 import publicRoutes from "./routes/public.js";
 import adminRoutes from "./routes/admin.js";
-import { db, dbPath } from "./db.js"; // Initialise + seed la base au démarrage
+import clientAuthRoutes from "./routes/clientAuth.js";
 
-// ======================================================
-// CONFIGURATION
-// ======================================================
+import {
+  db,
+  dbPath,
+} from "./db.js";
+
+/**
+ * ============================================================
+ * CONFIGURATION
+ * ============================================================
+ */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Render fournit automatiquement process.env.PORT.
-// En local, on utilise 4000.
-const PORT = Number(process.env.PORT) || 4000;
+const PORT =
+  Number(process.env.PORT) || 4000;
 
-// ======================================================
-// MIDDLEWARES
-// ======================================================
+/**
+ * ============================================================
+ * MIDDLEWARES
+ * ============================================================
+ */
 
 app.use(
   cors({
@@ -35,116 +44,176 @@ app.use(
 
 app.use(express.json());
 
-// ======================================================
-// API ROUTES
-// ======================================================
+/**
+ * ============================================================
+ * API
+ * ============================================================
+ */
 
 app.use("/api", publicRoutes);
+
 app.use("/api/admin", adminRoutes);
 
-// ======================================================
-// HEALTH CHECK
-// ======================================================
+app.use("/api/client-auth", clientAuthRoutes);
+
+/**
+ * ============================================================
+ * HEALTH CHECK
+ * ============================================================
+ *
+ * Cette route permet de vérifier :
+ *
+ * - que le serveur fonctionne ;
+ * - quel fichier SQLite est utilisé ;
+ * - combien de réservations existent ;
+ * - quelle est la plus ancienne réservation.
+ */
 
 app.get("/api/health", (_req, res) => {
-  // --------------------------------------------------------
-  // DIAGNOSTIC DB — volontairement inclus dans /api/health.
-  //
-  // Permet de vérifier en un coup d'œil, même en production,
-  // que la base utilisée est bien le fichier persistant attendu
-  // et qu'elle contient réellement des données (donc qu'elle
-  // n'a pas été réinitialisée par un redéploiement / redémarrage
-  // sur un filesystem éphémère).
-  // --------------------------------------------------------
-  let dbInfo: {
-    path: string;
-    appointmentsCount: number;
-    oldestAppointmentDate: string | null;
-  };
-
   try {
     const count = db
-      .prepare("SELECT COUNT(*) as c FROM appointments")
-      .get() as { c: number };
+      .prepare(
+        "SELECT COUNT(*) AS c FROM appointments"
+      )
+      .get() as {
+        c: number;
+      };
 
     const oldest = db
       .prepare(
-        "SELECT MIN(date) as d FROM appointments"
+        "SELECT MIN(date) AS d FROM appointments"
       )
-      .get() as { d: string | null };
+      .get() as {
+        d: string | null;
+      };
 
-    dbInfo = {
-      path: dbPath,
-      appointmentsCount: count.c,
-      oldestAppointmentDate: oldest.d,
-    };
-  } catch (err) {
-    dbInfo = {
-      path: dbPath,
-      appointmentsCount: -1,
-      oldestAppointmentDate: null,
-    };
+    const newest = db
+      .prepare(
+        "SELECT MAX(date) AS d FROM appointments"
+      )
+      .get() as {
+        d: string | null;
+      };
+
+    res.status(200).json({
+      ok: true,
+
+      message:
+        "Salon Booking API fonctionne correctement.",
+
+      time:
+        new Date().toISOString(),
+
+      database: {
+        path: dbPath,
+
+        appointmentsCount:
+          count.c,
+
+        oldestAppointmentDate:
+          oldest.d,
+
+        newestAppointmentDate:
+          newest.d,
+
+        dbPathConfigured:
+          Boolean(process.env.DB_PATH),
+
+        persistentPath:
+          process.env.DB_PATH ===
+          "/var/data/salon.db",
+      },
+    });
+  } catch (error) {
+    console.error(
+      "❌ Health check database error:",
+      error
+    );
+
+    res.status(500).json({
+      ok: false,
+
+      message:
+        "La base de données n'est pas accessible.",
+
+      database: {
+        path: dbPath,
+      },
+    });
   }
-
-  res.status(200).json({
-    ok: true,
-    message: "Salon Booking API fonctionne correctement.",
-    time: new Date().toISOString(),
-    db: dbInfo,
-  });
 });
 
-// ======================================================
-// FRONTEND REACT / VITE
-// ======================================================
+/**
+ * ============================================================
+ * FRONTEND
+ * ============================================================
+ */
 
-// En développement :
-// server/dist/index.js
-// En production après npm run build :
-// server/dist/index.js
-//
-// On remonte donc de server/dist vers la racine,
-// puis vers client/dist.
-
-const clientDist = path.resolve(__dirname, "../../client/dist");
+const clientDist = path.resolve(
+  __dirname,
+  "../../client/dist"
+);
 
 if (fs.existsSync(clientDist)) {
-  console.log(`📁 Frontend trouvé : ${clientDist}`);
+  console.log(
+    `📁 Frontend trouvé : ${clientDist}`
+  );
 
-  // Sert les fichiers statiques du frontend
-  app.use(express.static(clientDist));
+  app.use(
+    express.static(clientDist)
+  );
 
-  // React Router :
-  // toutes les routes qui ne sont pas /api
-  // renvoient vers index.html.
   app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api")) {
+    if (
+      req.path.startsWith("/api")
+    ) {
       return next();
     }
 
-    res.sendFile(path.join(clientDist, "index.html"));
+    res.sendFile(
+      path.join(
+        clientDist,
+        "index.html"
+      )
+    );
   });
 } else {
-  console.warn(`⚠️ Frontend introuvable : ${clientDist}`);
+  console.warn(
+    `⚠️ Frontend introuvable : ${clientDist}`
+  );
 }
 
-// ======================================================
-// ROUTE 404 API
-// ======================================================
+/**
+ * ============================================================
+ * API 404
+ * ============================================================
+ */
 
 app.use((req, res) => {
   res.status(404).json({
     error: "NOT_FOUND",
-    message: "Route introuvable.",
+
+    message:
+      "Route introuvable.",
   });
 });
 
-// ======================================================
-// START SERVER
-// ======================================================
+/**
+ * ============================================================
+ * SERVER
+ * ============================================================
+ */
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `✅ Salon booking API en écoute sur http://0.0.0.0:${PORT}`
-  );
-});
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `✅ Salon Booking API en écoute sur 0.0.0.0:${PORT}`
+    );
+
+    console.log(
+      `🗄️ SQLite : ${dbPath}`
+    );
+  }
+);

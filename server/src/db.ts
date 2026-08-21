@@ -5,131 +5,185 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// --------------------------------------------------------------
-// RÉSOLUTION DU CHEMIN DE LA BASE
-// --------------------------------------------------------------
-// IMPORTANT — persistance en production (Render) :
-//
-// Si DB_PATH n'est pas défini, on retombe sur un chemin RELATIF au
-// code compilé (server/dist/../data/salon.db). Sur Render, sans
-// disque persistant explicitement monté, CE dossier vit dans le
-// filesystem éphémère du conteneur : il est recréé vide à chaque
-// redémarrage / redéploiement, ce qui efface l'historique des
-// réservations même si le code applicatif ne supprime jamais rien.
-//
-// -> En production, DB_PATH DOIT pointer vers un chemin situé sur
-//    un "Persistent Disk" Render (ex: /var/data/salon.db), monté
-//    sur le service. Voir render.yaml à la racine du dépôt.
-export const dbPath = path.resolve(
-  process.env.DB_PATH || path.join(__dirname, "..", "data", "salon.db")
+/**
+ * ============================================================
+ * DATABASE PATH
+ * ============================================================
+ *
+ * LOCAL :
+ *   server/data/salon.db
+ *
+ * PRODUCTION :
+ *   DB_PATH=/var/data/salon.db
+ *
+ * IMPORTANT :
+ * En production, /var/data doit être le mountPath d'un
+ * Persistent Disk Render.
+ */
+
+const defaultDbPath = path.join(
+  __dirname,
+  "..",
+  "data",
+  "salon.db"
 );
 
-// Ensure data directory exists
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+export const dbPath = path.resolve(
+  process.env.DB_PATH || defaultDbPath
+);
 
+// Crée le dossier si nécessaire
+fs.mkdirSync(path.dirname(dbPath), {
+  recursive: true,
+});
+
+console.log("==============================================");
+console.log("🗄️  DATABASE");
+console.log("==============================================");
+console.log(`📁 DB path: ${dbPath}`);
+
+if (process.env.DB_PATH) {
+  console.log("✅ DB_PATH configuré");
+} else {
+  console.log("⚠️ DB_PATH non configuré");
+  console.log("   Utilisation du chemin local par défaut.");
+}
+
+console.log("==============================================");
+
+// Connexion SQLite
 export const db = new Database(dbPath);
 
-// Visible dans les logs Render au démarrage : permet de vérifier en
-// 2 secondes, sans rien déployer de plus, quel fichier de base est
-// réellement utilisé par le service en cours d'exécution.
-console.log(`🗄️  Base de données SQLite : ${dbPath}`);
-console.log(
-  process.env.DB_PATH
-    ? "   (DB_PATH défini explicitement — probablement un disque persistant)"
-    : "   ⚠️  DB_PATH non défini — chemin par défaut, potentiellement NON persistant sur Render"
-);
-
+// SQLite configuration
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+db.pragma("busy_timeout = 5000");
+
+/**
+ * ============================================================
+ * TABLES
+ * ============================================================
+ */
 
 db.exec(`
-CREATE TABLE IF NOT EXISTS staff (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1
-);
+  CREATE TABLE IF NOT EXISTS staff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+  );
 
-CREATE TABLE IF NOT EXISTS services (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name_fr TEXT NOT NULL,
-  name_ar TEXT NOT NULL,
-  duration_minutes INTEGER NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1
-);
+  CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_fr TEXT NOT NULL,
+    name_ar TEXT NOT NULL,
+    duration_minutes INTEGER NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+  );
 
-CREATE TABLE IF NOT EXISTS appointments (
-  id TEXT PRIMARY KEY,
-  staff_id INTEGER NOT NULL REFERENCES staff(id),
-  service_id INTEGER REFERENCES services(id),
-  date TEXT NOT NULL,
-  start_time TEXT NOT NULL,
-  end_time TEXT NOT NULL,
-  client_name TEXT,
-  client_phone TEXT,
+  CREATE TABLE IF NOT EXISTS clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 
-  status TEXT NOT NULL DEFAULT 'confirmed',
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
 
-  notes TEXT,
+  CREATE TABLE IF NOT EXISTS appointments (
+    id TEXT PRIMARY KEY,
 
-  -- Heure réelle d'arrivée du client
-  arrived_at TEXT,
+    staff_id INTEGER NOT NULL
+      REFERENCES staff(id),
 
-  -- Heure de fin réelle du rendez-vous
-  completed_at TEXT,
+    service_id INTEGER
+      REFERENCES services(id),
 
-  -- Retard en minutes
-  delay_minutes INTEGER NOT NULL DEFAULT 0,
+    date TEXT NOT NULL,
 
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
 
-CREATE INDEX IF NOT EXISTS idx_appt_staff_date
-  ON appointments(staff_id, date);
+    client_name TEXT,
+    client_phone TEXT,
 
-CREATE INDEX IF NOT EXISTS idx_appt_date
-  ON appointments(date);
+    client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
 
-CREATE INDEX IF NOT EXISTS idx_appt_phone
-  ON appointments(client_phone);
+    status TEXT NOT NULL DEFAULT 'confirmed',
 
--- Anti double-booking
-CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
-  ON appointments(staff_id, date, start_time)
-  WHERE status IN ('confirmed', 'blocked');
+    notes TEXT,
 
--- Notifications admin (nouvelle réservation, etc.)
--- Table purement additive : ne touche jamais aux données existantes.
-CREATE TABLE IF NOT EXISTS notifications (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL DEFAULT 'new_booking',
-  appointment_id TEXT REFERENCES appointments(id),
+    arrived_at TEXT,
 
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
+    completed_at TEXT,
 
-  -- Copie dénormalisée au moment de la création : la notification reste
-  -- lisible même si le rendez-vous est ensuite modifié ou annulé.
-  date TEXT,
-  start_time TEXT,
-  client_name TEXT,
-  service_name_fr TEXT,
-  staff_name TEXT,
+    delay_minutes INTEGER NOT NULL DEFAULT 0,
 
-  read_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 
-CREATE INDEX IF NOT EXISTS idx_notifications_read_created
-  ON notifications(read_at, created_at);
+  CREATE INDEX IF NOT EXISTS idx_appt_staff_date
+    ON appointments(staff_id, date);
+
+  CREATE INDEX IF NOT EXISTS idx_appt_date
+    ON appointments(date);
+
+  CREATE INDEX IF NOT EXISTS idx_appt_phone
+    ON appointments(client_phone);
+
+  /**
+   * Empêche uniquement deux rendez-vous ACTIFS
+   * d'avoir exactement le même début pour le même coiffeur.
+   *
+   * La vérification du chevauchement réel doit également
+   * être faite dans le service de disponibilité / création
+   * de réservation.
+   */
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
+    ON appointments(staff_id, date, start_time)
+    WHERE status IN ('confirmed', 'blocked');
+
+  /**
+   * Notifications
+   */
+  CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+
+    type TEXT NOT NULL DEFAULT 'new_booking',
+
+    appointment_id TEXT
+      REFERENCES appointments(id),
+
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+
+    date TEXT,
+    start_time TEXT,
+
+    client_name TEXT,
+    service_name_fr TEXT,
+    staff_name TEXT,
+
+    read_at TEXT,
+
+    created_at TEXT NOT NULL
+      DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_notifications_read_created
+    ON notifications(read_at, created_at);
 `);
 
-/*
- * ---------------------------------------------------------
- * MIGRATION
- * ---------------------------------------------------------
+/**
+ * ============================================================
+ * SAFE MIGRATIONS
+ * ============================================================
  *
- * Si la base existe déjà, les nouvelles colonnes sont ajoutées
- * sans supprimer les rendez-vous existants.
+ * Ces migrations ajoutent uniquement les colonnes manquantes.
+ * Aucune donnée existante n'est supprimée.
  */
 
 function addColumnIfMissing(
@@ -141,14 +195,31 @@ function addColumnIfMissing(
     .prepare(`PRAGMA table_info(${table})`)
     .all() as { name: string }[];
 
-  const exists = columns.some((c) => c.name === column);
+  const exists = columns.some(
+    (item) => item.name === column
+  );
 
   if (!exists) {
+    console.log(
+      `🔧 Migration: ajout de ${table}.${column}`
+    );
+
     db.exec(
       `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`
     );
   }
 }
+
+addColumnIfMissing(
+  "appointments",
+  "client_id",
+  "INTEGER REFERENCES clients(id) ON DELETE SET NULL"
+);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_appt_client_id
+    ON appointments(client_id);
+`);
 
 addColumnIfMissing(
   "appointments",
@@ -168,59 +239,80 @@ addColumnIfMissing(
   "INTEGER NOT NULL DEFAULT 0"
 );
 
-/*
- * ---------------------------------------------------------
+/**
+ * ============================================================
  * SEED STAFF
- * ---------------------------------------------------------
+ * ============================================================
+ *
+ * Les seeds ne sont exécutés que si la table est vide.
+ * Les données existantes ne sont jamais supprimées.
  */
 
-const staffCount = db.prepare(
-  "SELECT COUNT(*) as c FROM staff"
-).get() as { c: number };
+const staffCount = db
+  .prepare("SELECT COUNT(*) AS c FROM staff")
+  .get() as { c: number };
 
 if (staffCount.c === 0) {
+  console.log("🌱 Création des coiffeurs par défaut...");
+
   const insertStaff = db.prepare(
     "INSERT INTO staff (name, active) VALUES (?, 1)"
   );
 
-  insertStaff.run("Abdou");
-  insertStaff.run("Rayen");
+  const insertMany = db.transaction(() => {
+    insertStaff.run("Abdou");
+    insertStaff.run("Rayen");
+  });
+
+  insertMany();
 }
 
-/*
- * ---------------------------------------------------------
+/**
+ * ============================================================
  * SEED SERVICES
- * ---------------------------------------------------------
+ * ============================================================
  */
 
-const serviceCount = db.prepare(
-  "SELECT COUNT(*) as c FROM services"
-).get() as { c: number };
+const serviceCount = db
+  .prepare("SELECT COUNT(*) AS c FROM services")
+  .get() as { c: number };
 
 if (serviceCount.c === 0) {
-  const insertService = db.prepare(
-    `INSERT INTO services
-      (name_fr, name_ar, duration_minutes, active)
-     VALUES (?, ?, ?, 1)`
-  );
+  console.log("🌱 Création des services par défaut...");
 
-  insertService.run(
-    "Coupe cheveux",
-    "قص شعر",
-    20
-  );
+  const insertService = db.prepare(`
+    INSERT INTO services (
+      name_fr,
+      name_ar,
+      duration_minutes,
+      active
+    )
+    VALUES (?, ?, ?, 1)
+  `);
 
-  insertService.run(
-    "Coupe cheveux + barbe",
-    "قص شعر + لحية",
-    30
-  );
+  const insertMany = db.transaction(() => {
+    insertService.run(
+      "Coupe cheveux",
+      "قص شعر",
+      20
+    );
 
-  insertService.run(
-    "Autre service",
-    "خدمة أخرى",
-    30
-  );
+    insertService.run(
+      "Coupe cheveux + barbe",
+      "قص شعر + لحية",
+      30
+    );
+
+    insertService.run(
+      "Autre service",
+      "خدمة أخرى",
+      30
+    );
+  });
+
+  insertMany();
 }
+
+console.log("✅ SQLite initialisée avec succès.");
 
 export default db;
