@@ -41,45 +41,31 @@ export default function BookingPage() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
 
-  const [service, setService] =
-    useState<ServiceItem | null>(null);
+  const [service, setService] = useState<ServiceItem | null>(null);
+  const [staff, setStaff] = useState<Staff | null>(null);
+  const [date, setDate] = useState<string | null>(null);
+  const [time, setTime] = useState<string | null>(null);
 
-  const [staff, setStaff] =
-    useState<Staff | null>(null);
+  const [customTime, setCustomTime] = useState("");
+  const [useCustomTime, setUseCustomTime] = useState(false);
 
-  const [date, setDate] =
-    useState<string | null>(null);
+  const [slots, setSlots] = useState<SlotWithStatus[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
 
-  const [time, setTime] =
-    useState<string | null>(null);
+  const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
 
-  const [customTime, setCustomTime] =
-    useState("");
-
-  const [useCustomTime, setUseCustomTime] =
-    useState(false);
-
-  const [slots, setSlots] =
-    useState<SlotWithStatus[]>([]);
-
-  const [loadingSlots, setLoadingSlots] =
-    useState(false);
-
-  const [clientName, setClientName] =
-    useState("");
-
-  const [clientPhone, setClientPhone] =
-    useState("");
-
-  const [submitting, setSubmitting] =
-    useState(false);
-
-  const [formError, setFormError] =
-    useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [confirmation, setConfirmation] =
     useState<BookingConfirmation | null>(null);
 
+  /**
+   * ============================================================
+   * CLIENT CONNECTÉ
+   * ============================================================
+   */
   useEffect(() => {
     if (client) {
       setClientName(client.name);
@@ -93,10 +79,7 @@ export default function BookingPage() {
    * ============================================================
    */
   useEffect(() => {
-    Promise.all([
-      getServices(),
-      getStaff(),
-    ])
+    Promise.all([getServices(), getStaff()])
       .then(([servicesData, staffData]) => {
         setServices(servicesData);
         setStaffList(staffData);
@@ -122,11 +105,7 @@ export default function BookingPage() {
     setUseCustomTime(false);
     setFormError(null);
 
-    getAvailability(
-      staff.id,
-      service.id,
-      date
-    )
+    getAvailability(staff.id, service.id, date)
       .then((res) => {
         setSlots(res.slots);
       })
@@ -142,12 +121,6 @@ export default function BookingPage() {
    * ============================================================
    * ACTUALISATION DE LA DISPONIBILITÉ
    * ============================================================
-   *
-   * On recharge toutes les 60 secondes et quand la fenêtre
-   * redevient visible.
-   *
-   * On ne recharge pas si le client est déjà dans le formulaire
-   * avec une heure sélectionnée.
    */
   useEffect(() => {
     if (!service || !staff || !date || time || useCustomTime) {
@@ -155,26 +128,17 @@ export default function BookingPage() {
     }
 
     const refreshAvailability = () => {
-      getAvailability(
-        staff.id,
-        service.id,
-        date
-      )
+      getAvailability(staff.id, service.id, date)
         .then((res) => {
           setSlots(res.slots);
         })
         .catch(() => {});
     };
 
-    const interval = setInterval(
-      refreshAvailability,
-      60000
-    );
+    const interval = setInterval(refreshAvailability, 60000);
 
     const handleVisibilityChange = () => {
-      if (
-        document.visibilityState === "visible"
-      ) {
+      if (document.visibilityState === "visible") {
         refreshAvailability();
       }
     };
@@ -184,10 +148,7 @@ export default function BookingPage() {
       handleVisibilityChange
     );
 
-    window.addEventListener(
-      "focus",
-      refreshAvailability
-    );
+    window.addEventListener("focus", refreshAvailability);
 
     return () => {
       clearInterval(interval);
@@ -197,27 +158,16 @@ export default function BookingPage() {
         handleVisibilityChange
       );
 
-      window.removeEventListener(
-        "focus",
-        refreshAvailability
-      );
+      window.removeEventListener("focus", refreshAvailability);
     };
-  }, [
-    service,
-    staff,
-    date,
-    time,
-    useCustomTime,
-  ]);
+  }, [service, staff, date, time, useCustomTime]);
 
   /**
    * ============================================================
    * HEURE EFFECTIVE
    * ============================================================
    */
-  const effectiveTime = useCustomTime
-    ? customTime
-    : time;
+  const effectiveTime = useCustomTime ? customTime : time;
 
   /**
    * ============================================================
@@ -227,19 +177,16 @@ export default function BookingPage() {
   const step: Step = confirmation
     ? "confirmed"
     : !service
-    ? "service"
-    : !staff
-    ? "staff"
-    : !date
-    ? "date"
-    : !effectiveTime
-    ? "slot"
-    : "details";
+      ? "service"
+      : !staff
+        ? "staff"
+        : !date
+          ? "date"
+          : !effectiveTime
+            ? "slot"
+            : "details";
 
-  const stepOrder: Exclude<
-    Step,
-    "confirmed"
-  >[] = [
+  const stepOrder: Exclude<Step, "confirmed">[] = [
     "service",
     "staff",
     "date",
@@ -248,9 +195,7 @@ export default function BookingPage() {
   ];
 
   const currentIndex =
-    step === "confirmed"
-      ? stepOrder.length
-      : stepOrder.indexOf(step);
+    step === "confirmed" ? stepOrder.length : stepOrder.indexOf(step);
 
   /**
    * ============================================================
@@ -298,22 +243,17 @@ export default function BookingPage() {
 
   /**
    * ============================================================
-   * FORMAT HEURE
+   * NORMALISATION HEURE
    * ============================================================
    */
   function normalizeTime(value: string): string {
-    const cleaned = value
-      .replace(/[^\d]/g, "")
-      .slice(0, 4);
+    const cleaned = value.replace(/[^\d]/g, "").slice(0, 4);
 
     if (cleaned.length <= 2) {
       return cleaned;
     }
 
-    return `${cleaned.slice(
-      0,
-      2
-    )}:${cleaned.slice(2)}`;
+    return `${cleaned.slice(0, 2)}:${cleaned.slice(2)}`;
   }
 
   /**
@@ -321,15 +261,12 @@ export default function BookingPage() {
    * VALIDATION HEURE PERSONNALISÉE
    * ============================================================
    */
-  function isValidCustomTime(
-    value: string
-  ): boolean {
+  function isValidCustomTime(value: string): boolean {
     if (!/^\d{2}:\d{2}$/.test(value)) {
       return false;
     }
 
-    const [hours, minutes] =
-      value.split(":").map(Number);
+    const [hours, minutes] = value.split(":").map(Number);
 
     if (
       !Number.isInteger(hours) ||
@@ -347,27 +284,15 @@ export default function BookingPage() {
       return false;
     }
 
-    /**
-     * Le backend vérifiera :
-     * - horaires du salon
-     * - durée du service
-     * - conflits
-     * - délai minimum
-     *
-     * Ici on vérifie uniquement que l'heure saisie
-     * est syntaxiquement correcte.
-     */
     return true;
   }
 
   /**
    * ============================================================
-   * CHOIX D'UN CRÉNEAU NORMAL
+   * CHOIX CRÉNEAU
    * ============================================================
    */
-  function handleSlotSelect(
-    selectedTime: string
-  ) {
+  function handleSlotSelect(selectedTime: string) {
     setUseCustomTime(false);
     setCustomTime("");
     setTime(selectedTime);
@@ -376,14 +301,11 @@ export default function BookingPage() {
 
   /**
    * ============================================================
-   * CHOIX DE L'HEURE PERSONNALISÉE
+   * CHOIX HEURE PERSONNALISÉE
    * ============================================================
    */
-  function handleCustomTimeChange(
-    value: string
-  ) {
-    const normalized =
-      normalizeTime(value);
+  function handleCustomTimeChange(value: string) {
+    const normalized = normalizeTime(value);
 
     setCustomTime(normalized);
     setTime(null);
@@ -419,105 +341,56 @@ export default function BookingPage() {
       return;
     }
 
-    /**
-     * Validation locale de l'heure personnalisée.
-     */
     if (
       useCustomTime &&
-      !isValidCustomTime(
-        customTime
-      )
+      !isValidCustomTime(customTime)
     ) {
-      setFormError(
-        t.invalidCustomTime
-      );
+      setFormError(t.invalidCustomTime);
       return;
     }
 
     setSubmitting(true);
 
     try {
-      /**
-       * IMPORTANT :
-       * On envoie exactement l'heure choisie.
-       *
-       * Exemple :
-       * 17:55
-       *
-       * Le backend calculera :
-       * 17:55 -> 18:15
-       *
-       * et vérifiera toute la période.
-       */
-      const result =
-        await createBooking({
-          staffId: staff.id,
-          serviceId: service.id,
-          date,
-          time: effectiveTime,
-          clientName:
-            clientName.trim(),
-          clientPhone:
-            clientPhone.trim(),
-        });
+      const result = await createBooking({
+        staffId: staff.id,
+        serviceId: service.id,
+        date,
+        time: effectiveTime,
+        clientName: clientName.trim(),
+        clientPhone: clientPhone.trim(),
+      });
 
       setConfirmation(result);
     } catch (error) {
       if (
         error instanceof ApiRequestError &&
-        error.code ===
-          "SLOT_UNAVAILABLE"
+        error.code === "SLOT_UNAVAILABLE"
       ) {
-        setFormError(
-          t.slotTaken
-        );
+        setFormError(t.slotTaken);
 
         setTime(null);
 
-        /**
-         * Pour une heure personnalisée :
-         * on reste sur l'étape de sélection afin
-         * que le client puisse essayer une autre heure.
-         */
-        if (
-          useCustomTime
-        ) {
+        if (useCustomTime) {
           setUseCustomTime(true);
         }
 
-        if (
-          service &&
-          staff &&
-          date
-        ) {
-          getAvailability(
-            staff.id,
-            service.id,
-            date
-          )
+        if (service && staff && date) {
+          getAvailability(staff.id, service.id, date)
             .then((result) => {
-              setSlots(
-                result.slots
-              );
+              setSlots(result.slots);
             })
             .catch(() => {});
         }
 
-        /**
-         * Retour à la sélection de l'heure.
-         */
-        if (
-          !useCustomTime
-        ) {
+        if (!useCustomTime) {
           setTime(null);
         }
 
         return;
       }
 
-      setFormError(
-        t.errorGeneric
-      );
+      setFormError(t.errorGeneric);
     } finally {
       setSubmitting(false);
     }
@@ -553,27 +426,91 @@ export default function BookingPage() {
       dir={dir}
       className="min-h-screen flex flex-col"
     >
-      {/* ================= HEADER ================= */}
-      <header className="sticky top-0 z-10 bg-ink-950/90 backdrop-blur border-b border-ink-800 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center">
-          <p className="font-semibold text-zinc-100 text-base">
+      {/* =====================================================
+          HEADER
+      ====================================================== */}
+      <header className="sticky top-0 z-20 bg-ink-950/95 backdrop-blur border-b border-ink-800 px-4 py-3">
+        <div className="max-w-md mx-auto flex items-center justify-between gap-3">
+          {/* Logo / Nom */}
+          <Link
+            to="/"
+            className="font-semibold text-zinc-100 text-base whitespace-nowrap"
+          >
             {t.brand}
-          </p>
-        </div>
+          </Link>
 
-        <div className="flex items-center gap-2">
-          {client ? (
-            <Link to="/account" className="text-sm text-gold-400 hover:text-gold-300">{t.myAccount}</Link>
-          ) : (
-            <Link to="/auth" className="text-sm text-gold-400 hover:text-gold-300">{t.login}</Link>
-          )}
-          <LanguageToggle />
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {client ? (
+              /*
+               * CLIENT DÉJÀ CONNECTÉ
+               */
+              <Link
+                to="/account"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gold-500/50 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-400 transition-colors hover:bg-gold-500/20 hover:text-gold-300"
+              >
+                <span>👤</span>
+                <span>{t.myAccount}</span>
+              </Link>
+            ) : (
+              /*
+               * PAS CONNECTÉ
+               *
+               * Ce bouton permet :
+               * - Connexion
+               * - Création de compte
+               *
+               * La réservation reste possible sans compte.
+               */
+              <Link
+                to="/auth"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gold-500/50 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-400 transition-colors hover:bg-gold-500/20 hover:bg-gold-500/20 hover:text-gold-300"
+              >
+                <span>👤</span>
+                <span>{t.login}</span>
+              </Link>
+            )}
+
+            <LanguageToggle />
+          </div>
         </div>
       </header>
 
-      {/* ================= MAIN ================= */}
+      {/* =====================================================
+          MAIN
+      ====================================================== */}
       <main className="flex-1 px-4 py-5 max-w-md mx-auto w-full">
-        {/* Progression */}
+        {/* =====================================================
+            MESSAGE COMPTE CLIENT
+        ====================================================== */}
+        {!client && step === "service" && (
+          <div className="mb-5 rounded-xl border border-gold-500/20 bg-gold-500/5 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="text-lg">👤</div>
+
+              <div className="flex-1">
+                <p className="text-sm font-medium text-zinc-200">
+                  {t.clientAccount}
+                </p>
+
+                <p className="text-xs text-zinc-500 mt-1">
+                  {t.clientAccountHint}
+                </p>
+
+                <Link
+                  to="/auth"
+                  className="inline-block mt-2 text-xs font-medium text-gold-400 hover:text-gold-300 underline underline-offset-2"
+                >
+                  {t.login} / {t.createAccount}
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================
+            PROGRESSION
+        ====================================================== */}
         {step !== "confirmed" && (
           <>
             <p className="text-zinc-400 text-sm mb-4">
@@ -582,15 +519,11 @@ export default function BookingPage() {
 
             <div className="flex items-center gap-1.5 mb-6">
               {stepOrder.map(
-                (
-                  currentStep,
-                  index
-                ) => (
+                (currentStep, index) => (
                   <div
                     key={currentStep}
                     className={`h-1.5 flex-1 rounded-full transition-colors ${
-                      index <=
-                      currentIndex
+                      index <= currentIndex
                         ? "bg-gold-500"
                         : "bg-ink-800"
                     }`}
@@ -601,22 +534,24 @@ export default function BookingPage() {
           </>
         )}
 
-        {/* Chargement */}
+        {/* =====================================================
+            CHARGEMENT
+        ====================================================== */}
         {loadingCatalog &&
           step !== "confirmed" && (
             <div className="space-y-3">
-              {[1, 2, 3].map(
-                (item) => (
-                  <div
-                    key={item}
-                    className="h-16 rounded-xl2 bg-ink-800 animate-pulse"
-                  />
-                )
-              )}
+              {[1, 2, 3].map((item) => (
+                <div
+                  key={item}
+                  className="h-16 rounded-xl bg-ink-800 animate-pulse"
+                />
+              ))}
             </div>
           )}
 
-        {/* ================= SERVICE ================= */}
+        {/* =====================================================
+            SERVICE
+        ====================================================== */}
         {!loadingCatalog &&
           step === "service" && (
             <section className="animate-fade-in-up">
@@ -626,116 +561,74 @@ export default function BookingPage() {
 
               <ServiceSelector
                 services={services}
-                selectedId={
-                  service?.id ??
-                  null
-                }
-                onSelect={
-                  setService
-                }
+                selectedId={service?.id ?? null}
+                onSelect={setService}
               />
             </section>
           )}
 
-        {/* ================= BARBIER ================= */}
+        {/* =====================================================
+            BARBIER
+        ====================================================== */}
         {!loadingCatalog &&
           step === "staff" && (
             <section className="animate-fade-in-up">
               <BackBar
-                label={
-                  t.step2Title
-                }
-                onBack={() =>
-                  resetFrom(
-                    "service"
-                  )
-                }
-                backLabel={
-                  t.back
-                }
+                label={t.step2Title}
+                onBack={() => resetFrom("service")}
+                backLabel={t.back}
               />
 
               <StaffSelector
                 staff={staffList}
-                selectedId={
-                  staff?.id ??
-                  null
-                }
-                onSelect={
-                  setStaff
-                }
+                selectedId={staff?.id ?? null}
+                onSelect={setStaff}
               />
             </section>
           )}
 
-        {/* ================= DATE ================= */}
+        {/* =====================================================
+            DATE
+        ====================================================== */}
         {step === "date" && (
           <section className="animate-fade-in-up">
             <BackBar
-              label={
-                t.step3Title
-              }
-              onBack={() =>
-                resetFrom(
-                  "staff"
-                )
-              }
-              backLabel={
-                t.back
-              }
+              label={t.step3Title}
+              onBack={() => resetFrom("staff")}
+              backLabel={t.back}
             />
 
             <DateStrip
               selected={date}
-              onSelect={
-                setDate
-              }
+              onSelect={setDate}
             />
           </section>
         )}
 
-        {/* ================= CRÉNEAU ================= */}
+        {/* =====================================================
+            CRÉNEAU
+        ====================================================== */}
         {step === "slot" &&
           service &&
           staff &&
           date && (
             <section className="animate-fade-in-up">
               <BackBar
-                label={
-                  t.step4Title
-                }
-                onBack={() =>
-                  resetFrom(
-                    "date"
-                  )
-                }
-                backLabel={
-                  t.back
-                }
+                label={t.step4Title}
+                onBack={() => resetFrom("date")}
+                backLabel={t.back}
               />
 
               <TimeSlotGrid
                 slots={slots}
                 selected={
-                  useCustomTime
-                    ? null
-                    : time
+                  useCustomTime ? null : time
                 }
-                onSelect={
-                  handleSlotSelect
-                }
-                loading={
-                  loadingSlots
-                }
-                emptyMessage={
-                  t.noSlot
-                }
-                availableLabel={
-                  t.slotAvailable
-                }
-                bookedLabel={
-                  t.slotBooked
-                }
+                onSelect={handleSlotSelect}
+                loading={loadingSlots}
+                emptyMessage={t.noSlot}
+                availableLabel={t.slotAvailable}
+                bookedLabel={t.slotBooked}
                 exceptionalLabel={
                   t.exceptionalSlot
                 }
@@ -743,26 +636,21 @@ export default function BookingPage() {
 
               {/* Légende */}
               {!loadingSlots &&
-                slots.length >
-                  0 && (
+                slots.length > 0 && (
                   <div className="flex items-center gap-4 mt-3 text-xs text-zinc-400 flex-wrap">
                     <span className="flex items-center gap-1">
-                      🟢{" "}
-                      {
-                        t.slotAvailable
-                      }
+                      🟢 {t.slotAvailable}
                     </span>
 
                     <span className="flex items-center gap-1">
-                      🔴{" "}
-                      {
-                        t.slotBooked
-                      }
+                      🔴 {t.slotBooked}
                     </span>
                   </div>
                 )}
 
-              {/* ================= HEURE PERSONNALISÉE ================= */}
+              {/* =================================================
+                  HEURE PERSONNALISÉE
+              ================================================== */}
               <div className="mt-5 border-t border-ink-800 pt-4">
                 <p className="text-sm font-medium text-zinc-200 mb-2">
                   {t.customTimeTitle}
@@ -775,20 +663,16 @@ export default function BookingPage() {
                 <div className="flex gap-2">
                   <input
                     type="time"
-                    value={
-                      customTime
-                    }
-                    onChange={(
-                      event
-                    ) =>
+                    value={customTime}
+                    onChange={(event) =>
                       handleCustomTimeChange(
-                        event
-                          .target
-                          .value
+                        event.target.value
                       )
                     }
                     className="input-field flex-1"
-                    aria-label={t.customTimeAriaLabel}
+                    aria-label={
+                      t.customTimeAriaLabel
+                    }
                   />
 
                   <button
@@ -805,15 +689,9 @@ export default function BookingPage() {
                         return;
                       }
 
-                      setUseCustomTime(
-                        true
-                      );
-                      setTime(
-                        null
-                      );
-                      setFormError(
-                        null
-                      );
+                      setUseCustomTime(true);
+                      setTime(null);
+                      setFormError(null);
                     }}
                     disabled={
                       !isValidCustomTime(
@@ -837,6 +715,7 @@ export default function BookingPage() {
                     <div className="mt-3 rounded-xl border border-gold-500/40 bg-gold-500/10 px-3 py-2">
                       <p className="text-sm text-gold-400">
                         {t.customTimeSelectedLabel}
+
                         <span className="font-semibold ml-1">
                           {customTime}
                         </span>
@@ -845,18 +724,10 @@ export default function BookingPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setUseCustomTime(
-                            false
-                          );
-                          setCustomTime(
-                            ""
-                          );
-                          setTime(
-                            null
-                          );
-                          setFormError(
-                            null
-                          );
+                          setUseCustomTime(false);
+                          setCustomTime("");
+                          setTime(null);
+                          setFormError(null);
                         }}
                         className="text-xs text-zinc-400 hover:text-zinc-200 mt-1 underline"
                       >
@@ -867,28 +738,30 @@ export default function BookingPage() {
 
                 {formError &&
                   !time &&
-                  useCustomTime ===
-                    true && (
+                  useCustomTime === true && (
                     <p className="text-red-400 text-sm mt-3">
                       {formError}
                     </p>
                   )}
               </div>
 
-              {/* Résumé de la durée */}
+              {/* Durée */}
               <div className="mt-4 rounded-xl bg-ink-900 border border-ink-800 px-3 py-3">
                 <p className="text-xs text-zinc-500">
                   {t.serviceDurationLabel}
                 </p>
 
                 <p className="text-sm text-zinc-200 mt-1">
-                  {service.duration_minutes} {t.minutesShort}
+                  {service.duration_minutes}{" "}
+                  {t.minutesShort}
                 </p>
               </div>
             </section>
           )}
 
-        {/* ================= INFORMATIONS CLIENT ================= */}
+        {/* =====================================================
+            INFORMATIONS CLIENT
+        ====================================================== */}
         {step === "details" &&
           service &&
           staff &&
@@ -896,25 +769,15 @@ export default function BookingPage() {
           effectiveTime && (
             <section className="animate-fade-in-up">
               <BackBar
-                label={
-                  t.step5Title
-                }
-                onBack={() =>
-                  resetFrom(
-                    "slot"
-                  )
-                }
-                backLabel={
-                  t.back
-                }
+                label={t.step5Title}
+                onBack={() => resetFrom("slot")}
+                backLabel={t.back}
               />
 
               {/* Résumé */}
               <div className="card px-4 py-3 mb-4 text-sm space-y-1 text-zinc-300">
                 <SummaryLine
-                  label={
-                    t.service
-                  }
+                  label={t.service}
                   value={
                     lang === "ar"
                       ? service.name_ar
@@ -923,28 +786,20 @@ export default function BookingPage() {
                 />
 
                 <SummaryLine
-                  label={
-                    t.barber
-                  }
-                  value={
-                    staff.name
-                  }
+                  label={t.barber}
+                  value={staff.name}
                 />
 
                 <SummaryLine
                   label={t.date}
-                  value={dayjs(
-                    date
-                  ).format(
+                  value={dayjs(date).format(
                     "dddd D MMMM"
                   )}
                 />
 
                 <SummaryLine
                   label={t.time}
-                  value={
-                    effectiveTime
-                  }
+                  value={effectiveTime}
                 />
 
                 <SummaryLine
@@ -955,30 +810,20 @@ export default function BookingPage() {
 
               {/* Formulaire */}
               <form
-                onSubmit={
-                  handleSubmit
-                }
+                onSubmit={handleSubmit}
                 className="space-y-3"
               >
                 <div>
                   <label className="text-sm text-zinc-400 mb-1 block">
-                    {
-                      t.fullName
-                    }
+                    {t.fullName}
                   </label>
 
                   <input
                     className="input-field"
-                    value={
-                      clientName
-                    }
-                    onChange={(
-                      event
-                    ) =>
+                    value={clientName}
+                    onChange={(event) =>
                       setClientName(
-                        event
-                          .target
-                          .value
+                        event.target.value
                       )
                     }
                     placeholder={
@@ -995,16 +840,10 @@ export default function BookingPage() {
 
                   <input
                     className="input-field"
-                    value={
-                      clientPhone
-                    }
-                    onChange={(
-                      event
-                    ) =>
+                    value={clientPhone}
+                    onChange={(event) =>
                       setClientPhone(
-                        event
-                          .target
-                          .value
+                        event.target.value
                       )
                     }
                     placeholder={
@@ -1017,17 +856,13 @@ export default function BookingPage() {
 
                 {formError && (
                   <p className="text-red-400 text-sm">
-                    {
-                      formError
-                    }
+                    {formError}
                   </p>
                 )}
 
                 <button
                   type="submit"
-                  disabled={
-                    submitting
-                  }
+                  disabled={submitting}
                   className="btn-primary w-full mt-2"
                 >
                   {submitting
@@ -1038,21 +873,21 @@ export default function BookingPage() {
             </section>
           )}
 
-        {/* ================= CONFIRMATION ================= */}
+        {/* =====================================================
+            CONFIRMATION
+        ====================================================== */}
         {step === "confirmed" &&
           confirmation && (
             <ConfirmationView
-              confirmation={
-                confirmation
-              }
-              onNewBooking={
-                startOver
-              }
+              confirmation={confirmation}
+              onNewBooking={startOver}
             />
           )}
       </main>
 
-      {/* ================= FOOTER ================= */}
+      {/* =====================================================
+          FOOTER
+      ====================================================== */}
       <footer className="px-4 py-6 text-center space-y-3">
         <div>
           <a
@@ -1061,15 +896,11 @@ export default function BookingPage() {
             rel="noopener noreferrer"
             className="btn-secondary inline-block text-sm"
           >
-            {
-              t.findUsButton
-            }
+            {t.findUsButton}
           </a>
 
           <p className="text-xs text-zinc-500 mt-2">
-            {
-              t.salonAddress
-            }
+            {t.salonAddress}
           </p>
 
           <a
@@ -1078,9 +909,7 @@ export default function BookingPage() {
             rel="noopener noreferrer"
             className="text-xs text-zinc-600 hover:text-gold-500 transition-colors underline underline-offset-2"
           >
-            {
-              t.findUsSecondary
-            }
+            {t.findUsSecondary}
           </a>
         </div>
 
@@ -1096,9 +925,9 @@ export default function BookingPage() {
   );
 }
 
-/* ================================================= */
-/* BACK BAR */
-/* ================================================= */
+/* ============================================================
+   BACK BAR
+============================================================ */
 
 function BackBar({
   label,
@@ -1126,9 +955,9 @@ function BackBar({
   );
 }
 
-/* ================================================= */
-/* SUMMARY LINE */
-/* ================================================= */
+/* ============================================================
+   SUMMARY LINE
+============================================================ */
 
 function SummaryLine({
   label,
@@ -1150,9 +979,9 @@ function SummaryLine({
   );
 }
 
-/* ================================================= */
-/* CONFIRMATION */
-/* ================================================= */
+/* ============================================================
+   CONFIRMATION
+============================================================ */
 
 function ConfirmationView({
   confirmation,
@@ -1161,8 +990,7 @@ function ConfirmationView({
   confirmation: BookingConfirmation;
   onNewBooking: () => void;
 }) {
-  const { t, lang } =
-    useLanguage();
+  const { t, lang } = useLanguage();
 
   const {
     appointment,
@@ -1179,7 +1007,6 @@ function ConfirmationView({
 
   return (
     <section className="animate-fade-in-up text-center">
-      {/* Icône de confirmation */}
       <div className="w-16 h-16 mx-auto rounded-full bg-gold-500/15 border border-gold-500 flex items-center justify-center text-3xl mb-4">
         ✅
       </div>
@@ -1191,42 +1018,31 @@ function ConfirmationView({
       <p className="text-zinc-400 text-sm mb-6">
         {t.yourAppointmentAt}{" "}
         <span className="text-gold-500 font-semibold">
-          {
-            appointment.start_time
-          }
+          {appointment.start_time}
         </span>
       </p>
 
-      {/* Détails */}
       <div className="card px-4 py-4 text-start space-y-2.5 mb-4">
         <SummaryLine
           label={t.service}
-          value={
-            serviceName
-          }
+          value={serviceName}
         />
 
         <SummaryLine
           label={t.barber}
-          value={
-            staff.name
-          }
+          value={staff.name}
         />
 
         <SummaryLine
           label={t.date}
           value={dayjs(
             appointment.date
-          ).format(
-            "dddd D MMMM"
-          )}
+          ).format("dddd D MMMM")}
         />
 
         <SummaryLine
           label={t.time}
-          value={
-            appointment.start_time
-          }
+          value={appointment.start_time}
         />
 
         <SummaryLine
@@ -1235,7 +1051,6 @@ function ConfirmationView({
         />
       </div>
 
-      {/* Informations supplémentaires */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="card px-3 py-4">
           <p className="text-2xl font-bold text-gold-500">
@@ -1243,34 +1058,24 @@ function ConfirmationView({
           </p>
 
           <p className="text-xs text-zinc-400 mt-1">
-            {
-              t.clientsBefore
-            }
+            {t.clientsBefore}
           </p>
         </div>
 
         <div className="card px-3 py-4">
           <p className="text-2xl font-bold text-gold-500">
-            ⏱️{" "}
-            {
-              estimatedTime
-            }
+            ⏱️ {estimatedTime}
           </p>
 
           <p className="text-xs text-zinc-400 mt-1">
-            {
-              t.estimatedPassage
-            }
+            {t.estimatedPassage}
           </p>
         </div>
       </div>
 
-      {/* Nouvelle réservation */}
       <button
         type="button"
-        onClick={
-          onNewBooking
-        }
+        onClick={onNewBooking}
         className="btn-secondary w-full"
       >
         {t.newBooking}
