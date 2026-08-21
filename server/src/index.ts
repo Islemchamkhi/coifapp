@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import publicRoutes from "./routes/public.js";
 import adminRoutes from "./routes/admin.js";
-import "./db.js"; // Initialise + seed la base au démarrage
+import { db, dbPath } from "./db.js"; // Initialise + seed la base au démarrage
 
 // ======================================================
 // CONFIGURATION
@@ -47,10 +47,50 @@ app.use("/api/admin", adminRoutes);
 // ======================================================
 
 app.get("/api/health", (_req, res) => {
+  // --------------------------------------------------------
+  // DIAGNOSTIC DB — volontairement inclus dans /api/health.
+  //
+  // Permet de vérifier en un coup d'œil, même en production,
+  // que la base utilisée est bien le fichier persistant attendu
+  // et qu'elle contient réellement des données (donc qu'elle
+  // n'a pas été réinitialisée par un redéploiement / redémarrage
+  // sur un filesystem éphémère).
+  // --------------------------------------------------------
+  let dbInfo: {
+    path: string;
+    appointmentsCount: number;
+    oldestAppointmentDate: string | null;
+  };
+
+  try {
+    const count = db
+      .prepare("SELECT COUNT(*) as c FROM appointments")
+      .get() as { c: number };
+
+    const oldest = db
+      .prepare(
+        "SELECT MIN(date) as d FROM appointments"
+      )
+      .get() as { d: string | null };
+
+    dbInfo = {
+      path: dbPath,
+      appointmentsCount: count.c,
+      oldestAppointmentDate: oldest.d,
+    };
+  } catch (err) {
+    dbInfo = {
+      path: dbPath,
+      appointmentsCount: -1,
+      oldestAppointmentDate: null,
+    };
+  }
+
   res.status(200).json({
     ok: true,
     message: "Salon Booking API fonctionne correctement.",
     time: new Date().toISOString(),
+    db: dbInfo,
   });
 });
 

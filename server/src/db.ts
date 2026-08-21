@@ -4,13 +4,40 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath =
-  process.env.DB_PATH || path.join(__dirname, "..", "data", "salon.db");
+
+// --------------------------------------------------------------
+// RÉSOLUTION DU CHEMIN DE LA BASE
+// --------------------------------------------------------------
+// IMPORTANT — persistance en production (Render) :
+//
+// Si DB_PATH n'est pas défini, on retombe sur un chemin RELATIF au
+// code compilé (server/dist/../data/salon.db). Sur Render, sans
+// disque persistant explicitement monté, CE dossier vit dans le
+// filesystem éphémère du conteneur : il est recréé vide à chaque
+// redémarrage / redéploiement, ce qui efface l'historique des
+// réservations même si le code applicatif ne supprime jamais rien.
+//
+// -> En production, DB_PATH DOIT pointer vers un chemin situé sur
+//    un "Persistent Disk" Render (ex: /var/data/salon.db), monté
+//    sur le service. Voir render.yaml à la racine du dépôt.
+export const dbPath = path.resolve(
+  process.env.DB_PATH || path.join(__dirname, "..", "data", "salon.db")
+);
 
 // Ensure data directory exists
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new Database(dbPath);
+
+// Visible dans les logs Render au démarrage : permet de vérifier en
+// 2 secondes, sans rien déployer de plus, quel fichier de base est
+// réellement utilisé par le service en cours d'exécution.
+console.log(`🗄️  Base de données SQLite : ${dbPath}`);
+console.log(
+  process.env.DB_PATH
+    ? "   (DB_PATH défini explicitement — probablement un disque persistant)"
+    : "   ⚠️  DB_PATH non défini — chemin par défaut, potentiellement NON persistant sur Render"
+);
 
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
