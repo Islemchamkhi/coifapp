@@ -95,12 +95,14 @@ function getBookingWindows(
 
 export function getBusySlotsForStaffDate(
   staffId: number,
-  date: string
+  date: string,
+  excludeAppointmentId?: string
 ): BusySlot[] {
   const rows = db
     .prepare(
       `
       SELECT
+        id,
         start_time,
         end_time
       FROM appointments
@@ -111,13 +113,16 @@ export function getBusySlotsForStaffDate(
           'pending',
           'blocked'
         )
+        ${excludeAppointmentId ? "AND id != ?" : ""}
       ORDER BY start_time ASC
       `
     )
     .all(
-      staffId,
-      date
+      ...(excludeAppointmentId
+        ? [staffId, date, excludeAppointmentId]
+        : [staffId, date])
     ) as {
+    id: string;
     start_time: string;
     end_time: string;
   }[];
@@ -277,7 +282,7 @@ export function isExceptionalSlot(
  * => CONFLIT
  */
 
-function hasConflict(
+export function hasConflict(
   start: number,
   end: number,
   busySlots: BusySlot[]

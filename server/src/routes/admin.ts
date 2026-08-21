@@ -17,13 +17,13 @@ import {
 import {
   toHHMM,
   toMinutes,
-  overlaps,
   isValidDateStr,
   todayInSalonTz,
 } from "../lib/time.js";
 
 import {
   getBusySlotsForStaffDate,
+  hasConflict,
 } from "../services/availability.js";
 
 const router = Router();
@@ -204,19 +204,24 @@ router.post("/appointments", (req, res) => {
   const start = toMinutes(input.time);
   const end = start + duration;
 
+  // ---------------------------------------------------------
+  // CORRECTIF : utilise désormais la même fonction de
+  // vérification que TOUT le reste du système (booking public,
+  // disponibilité affichée), au lieu d'une logique dupliquée.
+  // Ceci inclut bien les statuts 'confirmed', 'pending' ET
+  // 'blocked' — plus aucune divergence possible entre les
+  // différents points de création de rendez-vous.
+  // ---------------------------------------------------------
   const busy =
     getBusySlotsForStaffDate(
       input.staffId,
       input.date
     );
 
-  const conflict = busy.some((b) =>
-    overlaps(
-      start,
-      end,
-      b.start,
-      b.end
-    )
+  const conflict = hasConflict(
+    start,
+    end,
+    busy
   );
 
   if (conflict) {
@@ -417,38 +422,30 @@ router.put("/appointments/:id", (req, res) => {
 
   // -------------------------------------------------------
   // CHECK OVERLAPPING APPOINTMENTS
+  //
+  // CORRECTIF IMPORTANT :
+  // L'ancienne requête ne vérifiait que les statuts
+  // 'confirmed' et 'blocked' — elle oubliait 'pending'
+  // (les créneaux "demande exceptionnelle" 20h-21h), ce qui
+  // permettait à une modification admin de chevaucher un
+  // rendez-vous pending existant sans être détectée.
+  //
+  // On utilise maintenant EXACTEMENT la même fonction que
+  // partout ailleurs dans le système (booking public,
+  // création admin, calcul de disponibilité affiché), avec
+  // exclusion du rendez-vous en cours de modification.
   // -------------------------------------------------------
 
-  const busy = db
-    .prepare(
-      `
-      SELECT
-        start_time,
-        end_time
-      FROM appointments
-      WHERE
-        staff_id = ?
-        AND date = ?
-        AND status IN ('confirmed', 'blocked')
-        AND id != ?
-      `
-    )
-    .all(
-      staffId,
-      date,
-      existing.id
-    ) as {
-      start_time: string;
-      end_time: string;
-    }[];
+  const busy = getBusySlotsForStaffDate(
+    staffId,
+    date,
+    existing.id
+  );
 
-  const conflict = busy.some((b) =>
-    overlaps(
-      start,
-      end,
-      toMinutes(b.start_time),
-      toMinutes(b.end_time)
-    )
+  const conflict = hasConflict(
+    start,
+    end,
+    busy
   );
 
   const newStatus =
