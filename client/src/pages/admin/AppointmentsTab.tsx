@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import dayjs from "dayjs";
 import { useLanguage } from "../../i18n/LanguageContext";
 import {
   Appointment,
@@ -10,6 +11,8 @@ import {
   adminCancelAppointment,
   adminGetStaff,
   adminGetServices,
+  ApiRequestError,
+  adminLogout,
 } from "../../api/client";
 import AppointmentFormModal from "../../components/AppointmentFormModal";
 
@@ -31,9 +34,19 @@ export default function AppointmentsTab() {
 
   // --------------------------------------------------
   // Date sélectionnée
+  //
+  // CORRECTIF IMPORTANT :
+  // `new Date().toISOString().slice(0, 10)` renvoie la date
+  // en UTC, pas la date locale du navigateur. Pour un salon en
+  // Tunisie (UTC+1), entre 00h00 et 01h00 heure locale, cela
+  // affichait encore la veille par défaut — l'admin ouvrait la
+  // page et voyait "aucun rendez-vous" pour un mauvais jour.
+  // dayjs() sans .utc() utilise toujours l'heure locale du
+  // navigateur, donc la date affichée correspond à ce que
+  // l'admin voit sur son horloge.
   // --------------------------------------------------
   const [date, setDate] = useState(
-    new Date().toISOString().slice(0, 10)
+    dayjs().format("YYYY-MM-DD")
   );
 
   // --------------------------------------------------
@@ -57,6 +70,17 @@ export default function AppointmentsTab() {
   const [loading, setLoading] = useState(true);
 
   // --------------------------------------------------
+  // Erreur de chargement
+  //
+  // CORRECTIF IMPORTANT :
+  // Avant, une erreur (session expirée, réseau, etc.) était
+  // seulement loggée en console — l'admin voyait "Aucun
+  // rendez-vous pour cette sélection", un message trompeur qui
+  // laisse croire qu'il n'y a réellement aucune réservation.
+  // --------------------------------------------------
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // --------------------------------------------------
   // Modal
   // --------------------------------------------------
   const [modal, setModal] = useState<{
@@ -76,6 +100,7 @@ export default function AppointmentsTab() {
   // --------------------------------------------------
   async function load() {
     setLoading(true);
+    setLoadError(null);
 
     try {
       const [appts, staff, svc] = await Promise.all([
@@ -106,6 +131,22 @@ export default function AppointmentsTab() {
         "Erreur lors du chargement des rendez-vous :",
         error
       );
+
+      // Session expirée ou invalide : on déconnecte
+      // proprement au lieu d'afficher une liste vide
+      // trompeuse.
+      if (
+        error instanceof ApiRequestError &&
+        (error.code === "UNAUTHORIZED" ||
+          error.code === "INVALID_TOKEN")
+      ) {
+        adminLogout();
+        window.location.reload();
+        return;
+      }
+
+      setLoadError(t.errorGeneric);
+      setAppointments([]);
     } finally {
       setLoading(false);
     }
@@ -136,6 +177,18 @@ export default function AppointmentsTab() {
         "Erreur lors de l'annulation du rendez-vous :",
         error
       );
+
+      if (
+        error instanceof ApiRequestError &&
+        (error.code === "UNAUTHORIZED" ||
+          error.code === "INVALID_TOKEN")
+      ) {
+        adminLogout();
+        window.location.reload();
+        return;
+      }
+
+      setLoadError(t.errorGeneric);
     }
   }
 
@@ -237,6 +290,23 @@ export default function AppointmentsTab() {
               className="h-16 rounded-xl2 bg-ink-800 animate-pulse"
             />
           ))}
+        </div>
+
+      ) : loadError ? (
+
+        /* ================================================= */
+        /* ERREUR DE CHARGEMENT (distincte de "aucun rdv") */
+        /* ================================================= */
+
+        <div className="card px-4 py-8 text-center text-red-400 text-sm space-y-3">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            onClick={() => load()}
+            className="btn-secondary text-xs"
+          >
+            {t.retry}
+          </button>
         </div>
 
       ) : appointments.length === 0 ? (
