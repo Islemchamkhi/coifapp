@@ -73,35 +73,44 @@ export function requireClient(
   }
 }
 
+/**
+ * ============================================================
+ * AUTHENTIFICATION CLIENT OPTIONNELLE
+ * ============================================================
+ *
+ * CORRECTIF IMPORTANT :
+ * Avant, un token présent mais invalide/expiré faisait échouer
+ * la requête entière (401) — même pour la réservation, qui doit
+ * TOUJOURS rester possible sans compte. Un client dont la
+ * session a expiré ne pouvait alors plus réserver du tout tant
+ * qu'il n'avait pas manuellement supprimé son token.
+ *
+ * Cette fonction est "optionnelle" par définition : elle ne
+ * doit donc JAMAIS bloquer la requête. Si le token est absent,
+ * invalide ou expiré, on continue simplement en mode invité
+ * (req.clientId reste undefined) au lieu de renvoyer une erreur.
+ */
 export function optionalClientAuth(
   req: ClientAuthedRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ) {
   const header = req.headers.authorization;
 
   // Aucun token = parcours invité normal.
-  if (!header) {
+  if (!header || !header.startsWith("Bearer ")) {
     next();
     return;
   }
 
-  if (!header.startsWith("Bearer ")) {
-    return res.status(401).json({
-      error: "INVALID_TOKEN",
-      message: "Session invalide. Veuillez vous reconnecter.",
-    });
-  }
-
+  // Token présent : on tente de l'identifier, mais un échec
+  // (expiré, invalide, compte supprimé) ne bloque jamais la
+  // réservation — on continue simplement sans identité client.
   const clientId = readClientId(req);
-  if (!clientId) {
-    return res.status(401).json({
-      error: "INVALID_TOKEN",
-      message: "Session invalide ou expirée. Veuillez vous reconnecter.",
-    });
+  if (clientId) {
+    req.clientId = clientId;
   }
 
-  req.clientId = clientId;
   next();
 }
 

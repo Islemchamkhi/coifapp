@@ -95,6 +95,17 @@ app.get("/api/health", (_req, res) => {
         d: string | null;
       };
 
+    // Comptage des comptes clients enregistrés — utile pour
+    // vérifier directement, sans deviner, si la table `clients`
+    // survit bien aux redémarrages (persistance réelle du disque).
+    const clientsCount = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM clients"
+      )
+      .get() as {
+        c: number;
+      };
+
     res.status(200).json({
       ok: true,
 
@@ -109,6 +120,9 @@ app.get("/api/health", (_req, res) => {
 
         appointmentsCount:
           count.c,
+
+        clientsCount:
+          clientsCount.c,
 
         oldestAppointmentDate:
           oldest.d,
