@@ -48,15 +48,47 @@ export default function ClientAuthPage() {
   }, [client, navigate]);
 
   async function submit(
-    e: React.FormEvent
+    e: React.FormEvent<HTMLFormElement>
   ) {
     e.preventDefault();
 
     setError(null);
 
+    // Certains navigateurs (Chrome/Edge) remplissent les champs via
+    // leur gestionnaire de mots de passe sans déclencher l'événement
+    // React onChange. Résultat : les champs sont visuellement remplis
+    // mais l'état React (identifier/password/...) reste vide, et le
+    // formulaire est soumis avec des valeurs vides.
+    //
+    // On lit donc les valeurs réellement présentes dans le <form>
+    // via FormData au moment du submit, plutôt que de faire confiance
+    // uniquement à l'état React — c'est la valeur "vraie" que
+    // l'utilisateur voit à l'écran.
+    const formData = new FormData(e.currentTarget);
+
+    const identifierValue = String(
+      formData.get("identifier") ?? identifier
+    ).trim();
+
+    const passwordValue = String(
+      formData.get("password") ?? password
+    ).trim();
+
+    const nameValue = String(
+      formData.get("name") ?? name
+    ).trim();
+
+    const phoneValue = String(
+      formData.get("phone") ?? phone
+    ).trim();
+
+    const emailValue = String(
+      formData.get("email") ?? email
+    ).trim();
+
     if (
       mode === "register" &&
-      password.length < 8
+      passwordValue.length < 8
     ) {
       setError(t.passwordMinLength);
       return;
@@ -67,15 +99,15 @@ export default function ClientAuthPage() {
     try {
       if (mode === "login") {
         await login(
-          identifier.trim(),
-          password
+          identifierValue,
+          passwordValue
         );
       } else {
         await register({
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-          password,
+          name: nameValue,
+          phone: phoneValue,
+          email: emailValue,
+          password: passwordValue,
         });
       }
 
@@ -185,6 +217,7 @@ export default function ClientAuthPage() {
 
                   <input
                     className="input-field"
+                    name="name"
                     value={name}
                     onChange={(e) =>
                       setName(e.target.value)
@@ -204,6 +237,7 @@ export default function ClientAuthPage() {
 
                   <input
                     className="input-field"
+                    name="phone"
                     value={phone}
                     onChange={(e) =>
                       setPhone(e.target.value)
@@ -224,6 +258,7 @@ export default function ClientAuthPage() {
                   <input
                     className="input-field"
                     type="email"
+                    name="email"
                     value={email}
                     onChange={(e) =>
                       setEmail(e.target.value)
@@ -243,6 +278,7 @@ export default function ClientAuthPage() {
 
                 <input
                   className="input-field"
+                  name="identifier"
                   value={identifier}
                   onChange={(e) =>
                     setIdentifier(e.target.value)
@@ -262,6 +298,7 @@ export default function ClientAuthPage() {
               <input
                 className="input-field"
                 type="password"
+                name="password"
                 value={password}
                 onChange={(e) =>
                   setPassword(e.target.value)
