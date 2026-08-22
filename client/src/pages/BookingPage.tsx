@@ -158,6 +158,25 @@ export default function BookingPage() {
 
     getAvailability(staff.id, service.id, date)
       .then((res) => {
+        // ------------------------------------------------------
+        // LOG TEMPORAIRE DE DIAGNOSTIC — à retirer une fois le
+        // bug d'affichage confirmé/résolu. Montre EXACTEMENT ce
+        // que l'API a renvoyé, sans aucune transformation.
+        // ------------------------------------------------------
+        console.log(
+          "[AVAILABILITY API] (chargement initial) staffId=" +
+            staff.id +
+            " serviceId=" +
+            service.id +
+            " date=" +
+            date +
+            " durationMinutes=" +
+            res.durationMinutes
+        );
+        res.slots.forEach((s) =>
+          console.log("[AVAILABILITY API]", s.time, s.status)
+        );
+
         setSlots(res.slots);
       })
       .catch(() => {
@@ -188,6 +207,20 @@ export default function BookingPage() {
     const refreshAvailability = () => {
       getAvailability(staff.id, service.id, date)
         .then((res) => {
+          console.log(
+            "[AVAILABILITY API] (actualisation périodique) staffId=" +
+              staff.id +
+              " serviceId=" +
+              service.id +
+              " date=" +
+              date +
+              " durationMinutes=" +
+              res.durationMinutes
+          );
+          res.slots.forEach((s) =>
+            console.log("[AVAILABILITY API]", s.time, s.status)
+          );
+
           setSlots(res.slots);
         })
         .catch(() => {});
@@ -225,6 +258,23 @@ export default function BookingPage() {
    * HEURE EFFECTIVE
    * ============================================================
    */
+  /**
+   * ============================================================
+   * LOG TEMPORAIRE DE DIAGNOSTIC
+   * ============================================================
+   * Se déclenche à chaque changement de `slots` — c'est-à-dire
+   * exactement au moment où TimeSlotGrid va recevoir ces données
+   * en props (slots={slots}, sans transformation, voir plus bas).
+   * À retirer une fois le bug d'affichage confirmé/résolu.
+   */
+  useEffect(() => {
+    if (slots.length === 0) return;
+    console.log(
+      "[AVAILABILITY UI] state 'slots' sur le point d'être rendu par TimeSlotGrid :"
+    );
+    slots.forEach((s) => console.log("[AVAILABILITY UI]", s.time, s.status));
+  }, [slots]);
+
   const effectiveTime = useCustomTime ? customTime : time;
 
   /**

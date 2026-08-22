@@ -115,6 +115,19 @@ export const translations = {
     passwordHint: "Au moins 8 caractères.",
     passwordMinLength: "Le mot de passe doit contenir au moins 8 caractères.",
     loading: "Chargement…",
+    chooseYourTime: "Choisissez votre heure",
+    changeTime: "Changer l'heure",
+    settings: "Paramètres",
+    bookingModeLabel: "Mode de réservation",
+    bookingModeInterval: "Grille de créneaux",
+    bookingModeIntervalHint:
+      "Le client choisit parmi une liste d'horaires espacés régulièrement.",
+    bookingModeFlexible: "Heure libre",
+    bookingModeFlexibleHint:
+      "Le client saisit directement l'heure de son choix.",
+    bookingIntervalLabel: "Espacement entre les créneaux",
+    saveSettings: "Enregistrer",
+    settingsSaved: "Paramètres enregistrés.",
   },
   ar: {
     dir: "rtl",
@@ -230,6 +243,18 @@ export const translations = {
     passwordHint: "8 أحرف على الأقل.",
     passwordMinLength: "يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.",
     loading: "جارٍ التحميل…",
+    chooseYourTime: "اختر الوقت",
+    changeTime: "تغيير الوقت",
+    settings: "الإعدادات",
+    bookingModeLabel: "طريقة الحجز",
+    bookingModeInterval: "شبكة مواعيد",
+    bookingModeIntervalHint:
+      "يختار الزبون من قائمة أوقات متباعدة بانتظام.",
+    bookingModeFlexible: "وقت حر",
+    bookingModeFlexibleHint: "يُدخل الزبون الوقت الذي يريده مباشرة.",
+    bookingIntervalLabel: "الفاصل الزمني بين المواعيد",
+    saveSettings: "حفظ",
+    settingsSaved: "تم حفظ الإعدادات.",
   },
 } as const;
 

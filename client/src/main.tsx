@@ -9,6 +9,30 @@ import { LanguageProvider } from "./i18n/LanguageContext";
 
 import "./styles/index.css";
 
+// ------------------------------------------------------------
+// MARQUEUR DE BUILD — DIAGNOSTIC TEMPORAIRE
+// ------------------------------------------------------------
+// Permet de vérifier, dans la console du navigateur en
+// production, quelle version du JS tourne réellement et si un
+// service worker actif sert une version différente.
+console.log(
+  "[BUILD MARKER] rayen-coif-frontend build=diag-2026-08-23-availability-trace"
+);
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    console.log("[SERVICE WORKER] registrations actives :", regs.length);
+    regs.forEach((r) =>
+      console.log(
+        "[SERVICE WORKER] scope=" + r.scope,
+        "waiting=" + !!r.waiting,
+        "installing=" + !!r.installing,
+        "active=" + !!r.active
+      )
+    );
+  });
+}
+
 /**
  * ============================================================
  * MISE À JOUR AUTOMATIQUE DU SERVICE WORKER (PWA)
