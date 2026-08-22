@@ -8,6 +8,7 @@ import {
   ClientRow,
   StatsResponse,
   NotificationsResponse,
+  BookingSettings,
 } from "../types";
 
 const BASE = "/api";
@@ -54,6 +55,9 @@ export const getAvailability = (staffId: number, serviceId: number, date: string
   request<AvailabilityResponse>(
     `/availability?staffId=${staffId}&serviceId=${serviceId}&date=${date}`
   );
+
+export const getBookingSettings = () =>
+  request<BookingSettings>("/booking-settings");
 
 export const createBooking = (payload: {
   staffId: number;
@@ -136,6 +140,18 @@ export const adminUpdateService = (id: number, payload: Record<string, unknown>)
 export const adminGetStaff = () => request<Staff[]>("/admin/staff", {}, true);
 export const adminUpdateStaff = (id: number, payload: Record<string, unknown>) =>
   request<Staff>(`/admin/staff/${id}`, { method: "PUT", body: JSON.stringify(payload) }, true);
+
+export const adminGetBookingSettings = () =>
+  request<BookingSettings>("/admin/booking-settings", {}, true);
+export const adminUpdateBookingSettings = (payload: {
+  bookingMode: "interval" | "flexible";
+  bookingIntervalMinutes: number;
+}) =>
+  request<BookingSettings>(
+    "/admin/booking-settings",
+    { method: "PUT", body: JSON.stringify(payload) },
+    true
+  );
 
 export const adminGetClients = (search?: string) =>
   request<ClientRow[]>(`/admin/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`, {}, true);

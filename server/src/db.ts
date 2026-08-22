@@ -175,6 +175,36 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_notifications_read_created
     ON notifications(read_at, created_at);
+
+  /**
+   * ============================================================
+   * PARAMÈTRES DE RÉSERVATION (par salon)
+   * ============================================================
+   *
+   * Ligne unique (id = 1) tant que l'application ne gère qu'un
+   * seul salon. La structure est volontairement une table à part
+   * (plutôt qu'un fichier de config) pour permettre plus tard
+   * d'ajouter une colonne salon_id et une ligne par salon sans
+   * rien casser.
+   *
+   * booking_mode :
+   *   'interval' -> le client choisit parmi une grille de
+   *                 créneaux espacés de booking_interval_minutes.
+   *   'flexible' -> le client choisit une heure précise (HH:mm)
+   *                 via un sélecteur d'heure.
+   *
+   * Dans les deux modes, le backend valide la disponibilité sur
+   * la période réelle [heure choisie, heure choisie + durée du
+   * service], jamais sur une grille arrondie.
+   */
+  CREATE TABLE IF NOT EXISTS booking_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    booking_mode TEXT NOT NULL DEFAULT 'interval'
+      CHECK (booking_mode IN ('interval', 'flexible')),
+    booking_interval_minutes INTEGER NOT NULL DEFAULT 5
+      CHECK (booking_interval_minutes IN (5, 10, 15, 30)),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 /**
@@ -311,6 +341,31 @@ if (serviceCount.c === 0) {
   });
 
   insertMany();
+}
+
+/**
+ * ============================================================
+ * SEED PARAMÈTRES DE RÉSERVATION
+ * ============================================================
+ *
+ * Valeurs par défaut = comportement actuel de l'application
+ * (grille toutes les 5 minutes), donc aucun changement visible
+ * tant que l'admin ne modifie pas ces réglages.
+ */
+
+const bookingSettingsCount = db
+  .prepare("SELECT COUNT(*) AS c FROM booking_settings")
+  .get() as { c: number };
+
+if (bookingSettingsCount.c === 0) {
+  console.log("🌱 Création des paramètres de réservation par défaut...");
+
+  db.prepare(
+    `
+    INSERT INTO booking_settings (id, booking_mode, booking_interval_minutes)
+    VALUES (1, 'interval', 5)
+    `
+  ).run();
 }
 
 console.log("✅ SQLite initialisée avec succès.");

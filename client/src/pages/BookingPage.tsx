@@ -15,12 +15,14 @@ import {
   Staff,
   BookingConfirmation,
   SlotWithStatus,
+  BookingSettings,
 } from "../types";
 
 import {
   getServices,
   getStaff,
   getAvailability,
+  getBookingSettings,
   createBooking,
   ApiRequestError,
 } from "../api/client";
@@ -48,6 +50,34 @@ export default function BookingPage() {
 
   const [customTime, setCustomTime] = useState("");
   const [useCustomTime, setUseCustomTime] = useState(false);
+
+  /**
+   * ============================================================
+   * CONFIGURATION DE RÉSERVATION (mode interval / flexible)
+   * ============================================================
+   *
+   * Par défaut "interval" pendant le chargement, pour reproduire
+   * exactement le comportement historique tant que la config
+   * n'est pas encore arrivée du serveur (aucune régression
+   * visible si l'appel est lent).
+   */
+  const [bookingSettings, setBookingSettings] =
+    useState<BookingSettings>({
+      bookingMode: "interval",
+      bookingIntervalMinutes: 5,
+    });
+
+  useEffect(() => {
+    getBookingSettings()
+      .then(setBookingSettings)
+      .catch(() => {
+        // En cas d'échec, on reste en mode "interval" par défaut
+        // (comportement historique) plutôt que de bloquer la
+        // réservation.
+      });
+  }, []);
+
+  const isFlexibleMode = bookingSettings.bookingMode === "flexible";
 
   const [slots, setSlots] = useState<SlotWithStatus[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -91,19 +121,40 @@ export default function BookingPage() {
 
   /**
    * ============================================================
-   * CHARGEMENT DES CRÉNEAUX
+   * RÉINITIALISATION DE L'HEURE CHOISIE
    * ============================================================
+   *
+   * Dès que service, coiffeur ou date change, toute heure
+   * précédemment choisie (grille ou heure libre) n'est plus
+   * valable et doit être réinitialisée — que le salon soit en
+   * mode "interval" ou "flexible".
    */
   useEffect(() => {
     if (!service || !staff || !date) {
       return;
     }
 
-    setLoadingSlots(true);
     setTime(null);
     setCustomTime("");
     setUseCustomTime(false);
     setFormError(null);
+  }, [service, staff, date]);
+
+  /**
+   * ============================================================
+   * CHARGEMENT DES CRÉNEAUX
+   * ============================================================
+   *
+   * En mode "flexible", il n'y a pas de grille à afficher : le
+   * client saisit directement une heure précise. On évite donc
+   * cet appel réseau inutile.
+   */
+  useEffect(() => {
+    if (!service || !staff || !date || isFlexibleMode) {
+      return;
+    }
+
+    setLoadingSlots(true);
 
     getAvailability(staff.id, service.id, date)
       .then((res) => {
@@ -115,7 +166,7 @@ export default function BookingPage() {
       .finally(() => {
         setLoadingSlots(false);
       });
-  }, [service, staff, date]);
+  }, [service, staff, date, isFlexibleMode]);
 
   /**
    * ============================================================
@@ -123,7 +174,14 @@ export default function BookingPage() {
    * ============================================================
    */
   useEffect(() => {
-    if (!service || !staff || !date || time || useCustomTime) {
+    if (
+      !service ||
+      !staff ||
+      !date ||
+      time ||
+      useCustomTime ||
+      isFlexibleMode
+    ) {
       return;
     }
 
@@ -160,7 +218,7 @@ export default function BookingPage() {
 
       window.removeEventListener("focus", refreshAvailability);
     };
-  }, [service, staff, date, time, useCustomTime]);
+  }, [service, staff, date, time, useCustomTime, isFlexibleMode]);
 
   /**
    * ============================================================
@@ -619,41 +677,55 @@ export default function BookingPage() {
                 backLabel={t.back}
               />
 
-              <TimeSlotGrid
-                slots={slots}
-                selected={
-                  useCustomTime ? null : time
-                }
-                onSelect={handleSlotSelect}
-                loading={loadingSlots}
-                emptyMessage={t.noSlot}
-                availableLabel={t.slotAvailable}
-                bookedLabel={t.slotBooked}
-                exceptionalLabel={
-                  t.exceptionalSlot
-                }
-              />
+              {!isFlexibleMode && (
+                <>
+                  <TimeSlotGrid
+                    slots={slots}
+                    selected={
+                      useCustomTime ? null : time
+                    }
+                    onSelect={handleSlotSelect}
+                    loading={loadingSlots}
+                    emptyMessage={t.noSlot}
+                    availableLabel={t.slotAvailable}
+                    bookedLabel={t.slotBooked}
+                    exceptionalLabel={
+                      t.exceptionalSlot
+                    }
+                  />
 
-              {/* Légende */}
-              {!loadingSlots &&
-                slots.length > 0 && (
-                  <div className="flex items-center gap-4 mt-3 text-xs text-zinc-400 flex-wrap">
-                    <span className="flex items-center gap-1">
-                      🟢 {t.slotAvailable}
-                    </span>
+                  {/* Légende */}
+                  {!loadingSlots &&
+                    slots.length > 0 && (
+                      <div className="flex items-center gap-4 mt-3 text-xs text-zinc-400 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          🟢 {t.slotAvailable}
+                        </span>
 
-                    <span className="flex items-center gap-1">
-                      🔴 {t.slotBooked}
-                    </span>
-                  </div>
-                )}
+                        <span className="flex items-center gap-1">
+                          🔴 {t.slotBooked}
+                        </span>
+                      </div>
+                    )}
+                </>
+              )}
 
               {/* =================================================
                   HEURE PERSONNALISÉE
+                  (contrôle principal en mode "flexible" ;
+                  alternative optionnelle en mode "interval")
               ================================================== */}
-              <div className="mt-5 border-t border-ink-800 pt-4">
+              <div
+                className={
+                  isFlexibleMode
+                    ? "mt-1"
+                    : "mt-5 border-t border-ink-800 pt-4"
+                }
+              >
                 <p className="text-sm font-medium text-zinc-200 mb-2">
-                  {t.customTimeTitle}
+                  {isFlexibleMode
+                    ? t.chooseYourTime
+                    : t.customTimeTitle}
                 </p>
 
                 <p className="text-xs text-zinc-500 mb-3">
@@ -731,7 +803,9 @@ export default function BookingPage() {
                         }}
                         className="text-xs text-zinc-400 hover:text-zinc-200 mt-1 underline"
                       >
-                        {t.chooseAnotherSlot}
+                        {isFlexibleMode
+                          ? t.changeTime
+                          : t.chooseAnotherSlot}
                       </button>
                     </div>
                   )}

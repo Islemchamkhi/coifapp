@@ -26,6 +26,12 @@ import {
   hasConflict,
 } from "../services/availability.js";
 
+import {
+  getBookingSettings,
+  updateBookingSettings,
+  BookingSettingsError,
+} from "../services/bookingSettings.js";
+
 const router = Router();
 
 // =========================================================
@@ -51,6 +57,49 @@ router.post("/login", (req, res) => {
 });
 
 router.use(requireAdmin);
+
+// =========================================================
+// PARAMÈTRES DE RÉSERVATION (mode interval / flexible)
+// =========================================================
+
+router.get("/booking-settings", (_req, res) => {
+  res.json(getBookingSettings());
+});
+
+const bookingSettingsSchema = z.object({
+  bookingMode: z.enum(["interval", "flexible"]),
+  bookingIntervalMinutes: z.coerce.number().int(),
+});
+
+router.put("/booking-settings", (req, res) => {
+  const parsed = bookingSettingsSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "INVALID_INPUT",
+      message: "Paramètres invalides.",
+    });
+  }
+
+  try {
+    const settings = updateBookingSettings(parsed.data);
+    return res.status(200).json(settings);
+  } catch (error) {
+    if (error instanceof BookingSettingsError) {
+      return res.status(400).json({
+        error: error.code,
+        message: error.message,
+      });
+    }
+
+    console.error("❌ Booking settings update error:", error);
+
+    return res.status(500).json({
+      error: "UPDATE_FAILED",
+      message: "Impossible de mettre à jour les paramètres.",
+    });
+  }
+});
 
 // =========================================================
 // APPOINTMENTS

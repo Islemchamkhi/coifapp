@@ -59,6 +59,13 @@ export interface SlotWithStatus {
   isExceptional?: boolean;
 }
 
+export type BookingMode = "interval" | "flexible";
+
+export interface BookingSettings {
+  bookingMode: BookingMode;
+  bookingIntervalMinutes: number;
+}
+
 export interface AvailabilityResponse {
   date: string;
   staffId: number;

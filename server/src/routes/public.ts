@@ -6,8 +6,23 @@ import { computeSlotsWithStatus } from "../services/availability.js";
 import { createBooking, BookingError } from "../services/booking.js";
 import { isValidDateStr } from "../lib/time.js";
 import { optionalClientAuth, ClientAuthedRequest } from "../middleware/clientAuth.js";
+import { getBookingSettings } from "../services/bookingSettings.js";
 
 const router = Router();
+
+/**
+ * ============================================================
+ * PARAMÈTRES DE RÉSERVATION (lecture seule, public)
+ * ============================================================
+ *
+ * Permet au frontend de savoir s'il doit afficher la grille de
+ * créneaux ("interval") ou le sélecteur d'heure libre
+ * ("flexible"), et avec quel intervalle en mode grille.
+ */
+router.get("/booking-settings", (_req, res) => {
+  const settings = getBookingSettings();
+  res.json(settings);
+});
 
 router.get("/staff", (_req, res) => {
   const staff = db.prepare("SELECT id, name, active FROM staff WHERE active = 1").all() as Staff[];

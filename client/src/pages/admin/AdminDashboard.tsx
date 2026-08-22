@@ -7,8 +7,9 @@ import AppointmentsTab from "./AppointmentsTab";
 import ServicesTab from "./ServicesTab";
 import ClientsTab from "./ClientsTab";
 import StatsTab from "./StatsTab";
+import SettingsTab from "./SettingsTab";
 
-type Tab = "appointments" | "services" | "clients" | "stats";
+type Tab = "appointments" | "services" | "clients" | "stats" | "settings";
 
 const NOTIFICATIONS_POLL_MS = 20000;
 
@@ -82,6 +83,7 @@ export default function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     { id: "services", label: t.services },
     { id: "clients", label: t.clients },
     { id: "stats", label: t.stats },
+    { id: "settings", label: t.settings },
   ];
 
   return (
