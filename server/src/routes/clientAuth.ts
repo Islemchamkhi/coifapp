@@ -231,16 +231,28 @@ router.post("/register", async (req, res) => {
  */
 router.post("/login", async (req, res) => {
   try {
-    const email = normalizeEmail(req.body?.email);
+    // Le frontend envoie { identifier, password } — "identifier"
+    // pouvant être soit un email, soit un numéro de téléphone
+    // (le champ affiché est "Email ou téléphone"). On accepte
+    // aussi "email" pour compatibilité avec d'anciens clients.
+    const identifierRaw = String(
+      req.body?.identifier ??
+        req.body?.email ??
+        ""
+    ).trim();
+
     const password = String(req.body?.password ?? "");
 
-    if (!email || !password) {
+    if (!identifierRaw || !password) {
       return res.status(400).json({
         error: "MISSING_FIELDS",
         message:
-          "Email et mot de passe sont requis.",
+          "Email/téléphone et mot de passe sont requis.",
       });
     }
+
+    const identifierEmail = normalizeEmail(identifierRaw);
+    const identifierPhone = normalizePhone(identifierRaw);
 
     const client = db
       .prepare(
@@ -255,10 +267,11 @@ router.post("/login", async (req, res) => {
           updated_at
         FROM clients
         WHERE email = ?
+           OR phone = ?
         LIMIT 1
         `
       )
-      .get(email) as
+      .get(identifierEmail, identifierPhone) as
       | {
           id: number;
           name: string;
@@ -274,7 +287,7 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({
         error: "INVALID_CREDENTIALS",
         message:
-          "Email ou mot de passe incorrect.",
+          "Email/téléphone ou mot de passe incorrect.",
       });
     }
 
@@ -288,7 +301,7 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({
         error: "INVALID_CREDENTIALS",
         message:
-          "Email ou mot de passe incorrect.",
+          "Email/téléphone ou mot de passe incorrect.",
       });
     }
 
