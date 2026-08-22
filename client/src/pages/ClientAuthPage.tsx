@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
 import { useLanguage } from "../i18n/LanguageContext";
 import { useClientAuth } from "../auth/ClientAuthContext";
@@ -15,6 +15,10 @@ export default function ClientAuthPage() {
   } = useClientAuth();
 
   const navigate = useNavigate();
+  const location = useLocation();
+  // Message optionnel transmis lors d'une redirection forcée
+  // (ex. compte introuvable côté serveur -> déconnexion auto).
+  const redirectMessage = (location.state as { message?: string } | null)?.message ?? null;
 
   const [mode, setMode] =
     useState<"login" | "register">("login");
@@ -115,6 +119,12 @@ export default function ClientAuthPage() {
 
         {/* CARD */}
         <div className="card p-5">
+
+          {redirectMessage && (
+            <p className="text-amber-400 text-sm mb-4 pb-4 border-b border-ink-800">
+              {redirectMessage}
+            </p>
+          )}
 
           <h1 className="text-xl font-semibold mb-1">
             {t.clientAccount}

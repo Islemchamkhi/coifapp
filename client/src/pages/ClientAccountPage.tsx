@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useClientAuth } from "../auth/ClientAuthContext";
@@ -8,7 +8,8 @@ import { Appointment } from "../types";
 
 export default function ClientAccountPage() {
   const { t, dir } = useLanguage();
-  const { client, loading, logout, updateProfile } = useClientAuth();
+  const { client, loading, logout, updateProfile, forceLogout } = useClientAuth();
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [name, setName] = useState("");
@@ -17,10 +18,31 @@ export default function ClientAccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Si le compte n'existe plus côté serveur (ex. base réinitialisée
+  // lors d'un redéploiement), on déconnecte proprement et on renvoie
+  // vers la connexion avec un message clair, plutôt que de laisser
+  // l'utilisateur face à des infos en cache et une erreur confuse.
+  function handleAccountGone() {
+    forceLogout();
+    navigate("/auth", {
+      replace: true,
+      state: { message: t.sessionExpired },
+    });
+  }
+
   useEffect(() => {
     if (!client) return;
     setName(client.name); setPhone(client.phone); setEmail(client.email);
-    clientGetAppointments().then(r => setAppointments(r.appointments)).catch(err => setError(err instanceof ApiRequestError ? err.message : t.errorGeneric));
+    clientGetAppointments()
+      .then(r => setAppointments(r.appointments))
+      .catch(err => {
+        if (err instanceof ApiRequestError && err.code === "CLIENT_NOT_FOUND") {
+          handleAccountGone();
+          return;
+        }
+        setError(err instanceof ApiRequestError ? err.message : t.errorGeneric);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, t.errorGeneric]);
 
   const upcoming = useMemo(() => {
@@ -38,7 +60,13 @@ export default function ClientAccountPage() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError(null);
     try { await updateProfile({ name, phone, email }); setProfileOpen(false); }
-    catch (err) { setError(err instanceof ApiRequestError ? err.message : t.errorGeneric); }
+    catch (err) {
+      if (err instanceof ApiRequestError && err.code === "CLIENT_NOT_FOUND") {
+        handleAccountGone();
+        return;
+      }
+      setError(err instanceof ApiRequestError ? err.message : t.errorGeneric);
+    }
     finally { setSaving(false); }
   }
 

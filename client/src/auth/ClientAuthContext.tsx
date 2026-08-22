@@ -10,6 +10,11 @@ interface ClientAuthContextValue {
   updateProfile: (payload: { name: string; phone: string; email: string }) => Promise<ClientAccount>;
   logout: () => void;
   refresh: () => Promise<void>;
+  // À appeler quand le serveur répond CLIENT_NOT_FOUND (compte
+  // supprimé côté serveur, ex. après une réinitialisation de la
+  // base). Déconnecte proprement au lieu de laisser l'UI dans un
+  // état incohérent (infos en cache + erreurs partout).
+  forceLogout: () => void;
 }
 
 const ClientAuthContext = createContext<ClientAuthContextValue | null>(null);
@@ -59,8 +64,15 @@ export function ClientAuthProvider({ children }: { children: React.ReactNode }) 
     setClient(null);
   };
 
+  // Identique à logout(), exposé sous un nom explicite pour les
+  // appelants qui réagissent à une erreur CLIENT_NOT_FOUND.
+  const forceLogout = () => {
+    clientLogout();
+    setClient(null);
+  };
+
   return (
-    <ClientAuthContext.Provider value={{ client, loading, login, register, updateProfile, logout, refresh }}>
+    <ClientAuthContext.Provider value={{ client, loading, login, register, updateProfile, logout, refresh, forceLogout }}>
       {children}
     </ClientAuthContext.Provider>
   );
