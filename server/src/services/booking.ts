@@ -1,11 +1,15 @@
 import { v4 as uuidv4 } from "uuid";
+
 import { db } from "../db.js";
+
 import { Appointment, ServiceRow, Staff } from "../types.js";
+
 import {
   isSlotStillAvailable,
   countClientsBefore,
   isExceptionalSlot,
 } from "./availability.js";
+
 import { toMinutes, toHHMM } from "../lib/time.js";
 
 export class BookingError extends Error {
@@ -43,11 +47,11 @@ export interface BookingConfirmation {
  * Règles :
  *
  * Lundi -> Vendredi
- * 08:00 -> 20:00 : confirmed
+ * 09:00 -> 20:00 : confirmed
  * 20:00 -> 21:00 : pending
  *
  * Samedi -> Dimanche
- * 08:00 -> 22:00 : confirmed
+ * 09:00 -> 22:00 : confirmed
  *
  * IMPORTANT :
  *
@@ -76,6 +80,7 @@ export function createBooking(
    * COIFFEUR
    * ==========================================================
    */
+
   const staff = db
     .prepare(
       `
@@ -99,6 +104,7 @@ export function createBooking(
    * SERVICE
    * ==========================================================
    */
+
   const service = db
     .prepare(
       `
@@ -122,11 +128,9 @@ export function createBooking(
    * INFORMATIONS CLIENT
    * ==========================================================
    */
-  const clientName =
-    input.clientName?.trim();
 
-  const clientPhone =
-    input.clientPhone?.trim();
+  const clientName = input.clientName?.trim();
+  const clientPhone = input.clientPhone?.trim();
 
   if (!clientName || !clientPhone) {
     throw new BookingError(
@@ -138,6 +142,7 @@ export function createBooking(
   /**
    * Vérification basique de l'heure.
    */
+
   if (!/^\d{2}:\d{2}$/.test(input.time)) {
     throw new BookingError(
       "INVALID_TIME",
@@ -149,8 +154,8 @@ export function createBooking(
    * Vérifier que l'heure peut être transformée
    * correctement en minutes.
    */
-  const startMinutes =
-    toMinutes(input.time);
+
+  const startMinutes = toMinutes(input.time);
 
   if (
     !Number.isFinite(startMinutes) ||
@@ -166,8 +171,8 @@ export function createBooking(
   /**
    * Durée complète du service.
    */
-  const durationMinutes =
-    service.duration_minutes;
+
+  const durationMinutes = service.duration_minutes;
 
   if (
     !Number.isFinite(durationMinutes) ||
@@ -180,8 +185,7 @@ export function createBooking(
   }
 
   const endMinutes =
-    startMinutes +
-    durationMinutes;
+    startMinutes + durationMinutes;
 
   const endTime =
     toHHMM(endMinutes);
@@ -194,11 +198,13 @@ export function createBooking(
    * Toutes les vérifications critiques et l'INSERT
    * sont effectués dans la même transaction.
    */
+
   const run = db.transaction(() => {
     /**
      * ========================================================
      * ÉTAPE 1
      * Vérification générale de disponibilité.
+     * ========================================================
      *
      * Cette vérification regarde :
      * - jour fermé
@@ -217,6 +223,7 @@ export function createBooking(
      *
      * est accepté si toute la période est libre.
      */
+
     const stillAvailable =
       isSlotStillAvailable(
         input.staffId,
@@ -253,9 +260,6 @@ export function createBooking(
      *
      * NOUVEAU 17:50 -> 18:10
      *
-     * 17:30 < 18:10 = true
-     * 17:50 > 17:50 = false
-     *
      * => PAS de conflit
      *
      * ---------------------------------
@@ -264,11 +268,9 @@ export function createBooking(
      *
      * NOUVEAU 17:45 -> 18:05
      *
-     * 17:30 < 18:05 = true
-     * 17:50 > 17:45 = true
-     *
      * => CONFLIT
      */
+
     const conflictingAppointment =
       db
         .prepare(
@@ -312,6 +314,7 @@ export function createBooking(
      *
      * Sinon = confirmed
      */
+
     const exceptional =
       isExceptionalSlot(
         input.date,
@@ -330,32 +333,46 @@ export function createBooking(
      * INSERT
      * ========================================================
      */
+
     const id = uuidv4();
 
-    // Par défaut (réservation SANS compte / invité) : accountClientId
-    // reste null, et finalClientName/finalClientPhone restent les
-    // valeurs saisies dans le formulaire. Rien n'est modifié dans
-    // ce chemin par rapport à l'original.
-    let accountClientId: number | null = input.clientId ?? null;
+    // Par défaut (réservation SANS compte / invité) :
+    // accountClientId reste null, et finalClientName/
+    // finalClientPhone restent les valeurs saisies
+    // dans le formulaire.
+
+    let accountClientId: number | null =
+      input.clientId ?? null;
+
     let finalClientName = clientName;
     let finalClientPhone = clientPhone;
 
     if (accountClientId !== null) {
       const client = db
-        .prepare("SELECT id, name, phone FROM clients WHERE id = ?")
-        .get(accountClientId) as { id: number; name: string; phone: string } | undefined;
+        .prepare(
+          "SELECT id, name, phone FROM clients WHERE id = ?"
+        )
+        .get(accountClientId) as
+        | {
+            id: number;
+            name: string;
+            phone: string;
+          }
+        | undefined;
 
       if (!client) {
-        // Le token JWT est valide mais le compte auquel il fait
-        // référence n'existe plus (ex : base SQLite réinitialisée
-        // lors d'un redéploiement). Conformément à la philosophie
-        // de optionalClientAuth (« ne jamais bloquer une réservation »),
-        // on bascule simplement en mode invité au lieu de faire
-        // échouer la réservation avec une erreur opaque pour l'utilisateur.
+        // Le token JWT est valide mais le compte auquel
+        // il fait référence n'existe plus.
+        //
+        // On bascule simplement en mode invité afin
+        // de ne pas bloquer la réservation.
+
         accountClientId = null;
       } else {
-        // Pour un compte connecté valide, les coordonnées de la
-        // réservation proviennent toujours du compte validé côté serveur.
+        // Pour un compte connecté valide, les coordonnées
+        // de la réservation proviennent toujours du compte
+        // validé côté serveur.
+
         accountClientId = client.id;
         finalClientName = client.name;
         finalClientPhone = client.phone;
@@ -397,8 +414,9 @@ export function createBooking(
        * Filet de sécurité supplémentaire.
        *
        * Si la DB possède un index/contrainte UNIQUE,
-       * on transforme également l'erreur en 409.
+       * on transforme également l'erreur en SLOT_UNAVAILABLE.
        */
+
       if (
         err instanceof Error &&
         /UNIQUE constraint failed/i.test(
@@ -420,6 +438,7 @@ export function createBooking(
      * RÉCUPÉRATION DU RENDEZ-VOUS CRÉÉ
      * ========================================================
      */
+
     const appointment =
       db
         .prepare(
@@ -440,16 +459,13 @@ export function createBooking(
 
     /**
      * ========================================================
-     * ÉTAPE 6 bis
+     * ÉTAPE 6 BIS
      * NOTIFICATION ADMIN
      * ========================================================
      *
-     * Créée dans la même transaction que le rendez-vous : soit
-     * les deux sont enregistrés, soit aucun des deux ne l'est.
-     * Les informations sont dénormalisées (nom du service,
-     * du coiffeur) pour que la notification reste lisible même
-     * si le rendez-vous est modifié ou annulé par la suite.
+     * Créée dans la même transaction que le rendez-vous.
      */
+
     const notificationId = uuidv4();
 
     db.prepare(
@@ -487,6 +503,7 @@ export function createBooking(
      * NOMBRE DE CLIENTS AVANT
      * ========================================================
      */
+
     const clientsBefore =
       countClientsBefore(
         input.staffId,
@@ -505,6 +522,7 @@ export function createBooking(
    * EXÉCUTION
    * ==========================================================
    */
+
   const {
     appointment,
     clientsBefore,
@@ -515,6 +533,7 @@ export function createBooking(
    * CONFIRMATION
    * ==========================================================
    */
+
   return {
     appointment,
     service,

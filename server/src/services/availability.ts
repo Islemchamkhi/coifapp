@@ -52,7 +52,7 @@ function getBookingWindows(date: string): BookingWindow[] {
   if (isWeekend) {
     return [
       {
-        start: toMinutes("08:00"),
+        start: toMinutes("09:00"),
         end: toMinutes("22:00"),
         type: "normal",
       },
@@ -61,7 +61,7 @@ function getBookingWindows(date: string): BookingWindow[] {
 
   return [
     {
-      start: toMinutes("08:00"),
+      start: toMinutes("09:00"),
       end: toMinutes("20:00"),
       type: "normal",
     },
