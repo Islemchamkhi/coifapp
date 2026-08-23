@@ -30,6 +30,11 @@ export default function ServicesTab() {
     await adminUpdateService(s.id, { duration_minutes });
   }
 
+  async function updatePrice(s: ServiceItem, price: number) {
+    setServices((prev) => prev.map((x) => (x.id === s.id ? { ...x, price } : x)));
+    await adminUpdateService(s.id, { price });
+  }
+
   async function toggleActive(s: ServiceItem) {
     const active = s.active ? false : true;
     setServices((prev) => prev.map((x) => (x.id === s.id ? { ...x, active: active ? 1 : 0 } : x)));
@@ -77,6 +82,19 @@ export default function ServicesTab() {
                 className="input-field w-20 text-center"
               />
               <span className="text-xs text-zinc-500">{t.minutesShort}</span>
+              <input
+                type="number"
+                min={0}
+                step="0.001"
+                value={s.price}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isNaN(value) || value < 0) return;
+                  updatePrice(s, value);
+                }}
+                className="input-field w-20 text-center"
+              />
+              <span className="text-xs text-zinc-500">{t.currency}</span>
               <button
                 onClick={() => toggleActive(s)}
                 className={`pill border ${
@@ -133,15 +151,27 @@ function NewServiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [nameFr, setNameFr] = useState("");
   const [nameAr, setNameAr] = useState("");
   const [duration, setDuration] = useState(30);
+  const [price, setPrice] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (Number.isNaN(price) || price < 0) {
+      setError(t.invalidForm);
+      return;
+    }
+
     setSaving(true);
     setError(null);
     try {
-      await adminCreateService({ name_fr: nameFr, name_ar: nameAr, duration_minutes: duration });
+      await adminCreateService({
+        name_fr: nameFr,
+        name_ar: nameAr,
+        duration_minutes: duration,
+        price,
+      });
       onSaved();
     } catch {
       setError(t.errorGeneric);
@@ -170,14 +200,31 @@ function NewServiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
             required
             dir="rtl"
           />
-          <input
-            type="number"
-            className="input-field"
-            value={duration}
-            min={5}
-            max={240}
-            onChange={(e) => setDuration(Number(e.target.value))}
-          />
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">{t.duration}</label>
+            <input
+              type="number"
+              className="input-field"
+              value={duration}
+              min={5}
+              max={240}
+              onChange={(e) => setDuration(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">
+              {t.price} ({t.currency})
+            </label>
+            <input
+              type="number"
+              className="input-field"
+              value={price}
+              min={0}
+              step="0.001"
+              onChange={(e) => setPrice(Number(e.target.value))}
+              required
+            />
+          </div>
           {error && <p className="text-red-400 text-sm">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">

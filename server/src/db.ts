@@ -170,7 +170,7 @@ db.exec(`
     name_fr TEXT NOT NULL,
     name_ar TEXT NOT NULL,
     duration_minutes INTEGER NOT NULL,
-    price INTEGER NOT NULL DEFAULT 0,
+    price REAL NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1
   );
 
@@ -353,7 +353,7 @@ addColumnIfMissing(
 addColumnIfMissing(
   "services",
   "price",
-  "INTEGER NOT NULL DEFAULT 0"
+  "REAL NOT NULL DEFAULT 0"
 );
 
 /**

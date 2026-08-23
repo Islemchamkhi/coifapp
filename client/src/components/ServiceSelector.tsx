@@ -25,16 +25,34 @@ export default function ServiceSelector({ services, selectedId, onSelect }: Prop
             }`}
           >
             <span className="font-medium text-zinc-100">{name}</span>
-            <span
-              className={`pill ${
-                active ? "bg-gold-500 text-ink-950" : "bg-ink-800 text-zinc-400"
-              }`}
-            >
-              {s.duration_minutes} {t.minutes}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <span
+                className={`pill ${
+                  active ? "bg-gold-500 text-ink-950" : "bg-ink-800 text-zinc-400"
+                }`}
+              >
+                {s.duration_minutes} {t.minutes}
+              </span>
+              <span
+                className={`pill ${
+                  active ? "bg-gold-500 text-ink-950" : "bg-ink-800 text-zinc-400"
+                }`}
+              >
+                {formatPrice(s.price)} {t.currency}
+              </span>
+            </div>
           </button>
         );
       })}
     </div>
   );
+}
+
+function formatPrice(price: number): string {
+  // Affiche un entier proprement (15) mais garde les décimales
+  // utiles si elles existent (15.5), sans jamais aller au-delà
+  // de 3 décimales (ex: 15.500 -> "15.5").
+  return Number.isInteger(price)
+    ? String(price)
+    : String(Number(price.toFixed(3)));
 }
