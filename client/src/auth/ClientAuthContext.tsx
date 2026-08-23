@@ -35,7 +35,7 @@ interface ClientAuthContextValue {
   updateProfile: (payload: {
     name: string;
     phone: string;
-    email: string;
+    email?: string;
   }) => Promise<ClientAccount>;
 
   logout: () => void;
@@ -46,7 +46,9 @@ interface ClientAuthContextValue {
 }
 
 const ClientAuthContext =
-  createContext<ClientAuthContextValue | null>(null);
+  createContext<ClientAuthContextValue | null>(
+    null
+  );
 
 export function ClientAuthProvider({
   children,
@@ -56,20 +58,15 @@ export function ClientAuthProvider({
   const [client, setClient] =
     useState<ClientAccount | null>(null);
 
-  const [loading, setLoading] = useState(true);
-
-  /**
-   * ============================================================
-   * REFRESH CLIENT
-   * ============================================================
-   */
+  const [loading, setLoading] =
+    useState(true);
 
   const refresh = async () => {
-    const token = localStorage.getItem(
-      "rayen_client_token"
-    );
-
-    if (!token) {
+    if (
+      !localStorage.getItem(
+        "rayen_client_token"
+      )
+    ) {
       setClient(null);
       return;
     }
@@ -84,30 +81,18 @@ export function ClientAuthProvider({
     }
   };
 
-  /**
-   * ============================================================
-   * INITIALISATION
-   * ============================================================
-   */
-
   useEffect(() => {
-    refresh().finally(() => {
-      setLoading(false);
-    });
+    refresh().finally(() =>
+      setLoading(false)
+    );
   }, []);
-
-  /**
-   * ============================================================
-   * LOGIN
-   * ============================================================
-   */
 
   const login = async (
     identifier: string,
     password: string
-  ): Promise<ClientAccount> => {
+  ) => {
     const result = await clientLogin(
-      identifier.trim(),
+      identifier,
       password
     );
 
@@ -116,114 +101,67 @@ export function ClientAuthProvider({
     return result.client;
   };
 
-  /**
-   * ============================================================
-   * REGISTER
-   * ============================================================
-   *
-   * EMAIL FACULTATIF
-   *
-   * Si l'utilisateur ne possède pas d'adresse email,
-   * on n'envoie pas une chaîne vide au serveur.
-   *
-   * Exemple :
-   *
-   * email = "test@gmail.com"
-   *       -> "test@gmail.com"
-   *
-   * email = ""
-   *       -> undefined
-   */
-
   const register = async (payload: {
     name: string;
     phone: string;
     email?: string;
     password: string;
-  }): Promise<ClientAccount> => {
+  }) => {
     const cleanedPayload = {
       name: payload.name.trim(),
-
       phone: payload.phone.trim(),
-
-      email:
-        payload.email &&
-        payload.email.trim().length > 0
-          ? payload.email.trim().toLowerCase()
-          : undefined,
-
+      ...(payload.email?.trim()
+        ? {
+            email: payload.email.trim(),
+          }
+        : {}),
       password: payload.password,
     };
 
     const result =
-      await clientRegister(cleanedPayload);
+      await clientRegister(
+        cleanedPayload
+      );
 
     setClient(result.client);
 
     return result.client;
   };
-
-  /**
-   * ============================================================
-   * UPDATE PROFILE
-   * ============================================================
-   *
-   * Ici aussi l'email peut être vide.
-   */
 
   const updateProfile = async (payload: {
     name: string;
     phone: string;
-    email: string;
-  }): Promise<ClientAccount> => {
+    email?: string;
+  }) => {
     const cleanedPayload = {
       name: payload.name.trim(),
-
       phone: payload.phone.trim(),
-
-      email:
-        payload.email.trim().length > 0
-          ? payload.email.trim().toLowerCase()
-          : "",
+      ...(payload.email?.trim()
+        ? {
+            email: payload.email.trim(),
+          }
+        : {}),
     };
 
     const result =
-      await clientUpdateProfile(cleanedPayload);
+      await clientUpdateProfile(
+        cleanedPayload
+      );
 
     setClient(result.client);
 
     return result.client;
   };
-
-  /**
-   * ============================================================
-   * LOGOUT
-   * ============================================================
-   */
 
   const logout = () => {
     clientLogout();
     setClient(null);
   };
 
-  /**
-   * ============================================================
-   * FORCE LOGOUT
-   * ============================================================
-   *
-   * Utilisé lorsqu'un compte n'existe plus côté serveur.
-   */
-
   const forceLogout = () => {
     clientLogout();
     setClient(null);
   };
-
-  /**
-   * ============================================================
-   * PROVIDER
-   * ============================================================
-   */
 
   return (
     <ClientAuthContext.Provider
@@ -243,14 +181,9 @@ export function ClientAuthProvider({
   );
 }
 
-/**
- * ============================================================
- * HOOK
- * ============================================================
- */
-
 export function useClientAuth() {
-  const context = useContext(ClientAuthContext);
+  const context =
+    useContext(ClientAuthContext);
 
   if (!context) {
     throw new Error(

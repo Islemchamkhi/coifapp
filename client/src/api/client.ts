@@ -57,7 +57,9 @@ async function request<T>(
     headers,
   });
 
-  const contentType = response.headers.get("content-type") || "";
+  const contentType =
+    response.headers.get("content-type") || "";
+
   const isJson = contentType.includes("application/json");
 
   let data: unknown = null;
@@ -133,7 +135,7 @@ export const createBooking = (payload: {
 export const clientRegister = async (payload: {
   name: string;
   phone: string;
-  email: string;
+  email?: string;
   password: string;
 }) => {
   const response = await request<{
@@ -141,10 +143,20 @@ export const clientRegister = async (payload: {
     client: import("../types").ClientAccount;
   }>("/client-auth/register", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      name: payload.name,
+      phone: payload.phone,
+      ...(payload.email
+        ? { email: payload.email }
+        : {}),
+      password: payload.password,
+    }),
   });
 
-  localStorage.setItem(CLIENT_TOKEN_KEY, response.token);
+  localStorage.setItem(
+    CLIENT_TOKEN_KEY,
+    response.token
+  );
 
   return response;
 };
@@ -164,7 +176,10 @@ export const clientLogin = async (
     }),
   });
 
-  localStorage.setItem(CLIENT_TOKEN_KEY, response.token);
+  localStorage.setItem(
+    CLIENT_TOKEN_KEY,
+    response.token
+  );
 
   return response;
 };
@@ -200,7 +215,7 @@ export const clientGetAppointments = () =>
 export const clientUpdateProfile = (payload: {
   name: string;
   phone: string;
-  email: string;
+  email?: string;
 }) =>
   request<{
     client: import("../types").ClientAccount;
@@ -208,7 +223,13 @@ export const clientUpdateProfile = (payload: {
     "/client-auth/me",
     {
       method: "PUT",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        name: payload.name,
+        phone: payload.phone,
+        ...(payload.email
+          ? { email: payload.email }
+          : {}),
+      }),
     },
     false,
     CLIENT_TOKEN_KEY
@@ -218,7 +239,9 @@ export const clientUpdateProfile = (payload: {
    ADMIN AUTHENTICATION
    ========================================================= */
 
-export const adminLogin = async (password: string) => {
+export const adminLogin = async (
+  password: string
+) => {
   const response = await request<{
     token: string;
   }>("/admin/login", {
@@ -228,7 +251,10 @@ export const adminLogin = async (password: string) => {
     }),
   });
 
-  localStorage.setItem(ADMIN_TOKEN_KEY, response.token);
+  localStorage.setItem(
+    ADMIN_TOKEN_KEY,
+    response.token
+  );
 
   return response;
 };
@@ -259,7 +285,10 @@ export const adminGetAppointments = (
   }
 
   if (params.staffId !== undefined) {
-    query.set("staffId", String(params.staffId));
+    query.set(
+      "staffId",
+      String(params.staffId)
+    );
   }
 
   if (params.status) {
@@ -269,7 +298,9 @@ export const adminGetAppointments = (
   const queryString = query.toString();
 
   return request<Appointment[]>(
-    `/admin/appointments${queryString ? `?${queryString}` : ""}`,
+    `/admin/appointments${
+      queryString ? `?${queryString}` : ""
+    }`,
     {},
     true
   );
@@ -300,7 +331,9 @@ export const adminUpdateAppointment = (
     true
   );
 
-export const adminCancelAppointment = (id: string) =>
+export const adminCancelAppointment = (
+  id: string
+) =>
   request<{ ok: boolean }>(
     `/admin/appointments/${encodeURIComponent(id)}`,
     {
@@ -380,10 +413,12 @@ export const adminGetBookingSettings = () =>
     true
   );
 
-export const adminUpdateBookingSettings = (payload: {
-  bookingMode: "interval" | "flexible";
-  bookingIntervalMinutes: number;
-}) =>
+export const adminUpdateBookingSettings = (
+  payload: {
+    bookingMode: "interval" | "flexible";
+    bookingIntervalMinutes: number;
+  }
+) =>
   request<BookingSettings>(
     "/admin/booking-settings",
     {
@@ -397,7 +432,9 @@ export const adminUpdateBookingSettings = (payload: {
    ADMIN - CLIENTS
    ========================================================= */
 
-export const adminGetClients = (search?: string) => {
+export const adminGetClients = (
+  search?: string
+) => {
   const query = search
     ? `?search=${encodeURIComponent(search)}`
     : "";
@@ -413,7 +450,9 @@ export const adminGetClientAppointments = (
   phone: string
 ) =>
   request<Appointment[]>(
-    `/admin/clients/${encodeURIComponent(phone)}/appointments`,
+    `/admin/clients/${encodeURIComponent(
+      phone
+    )}/appointments`,
     {},
     true
   );
@@ -439,7 +478,9 @@ export const adminGetStats = (
   const queryString = query.toString();
 
   return request<StatsResponse>(
-    `/admin/stats${queryString ? `?${queryString}` : ""}`,
+    `/admin/stats${
+      queryString ? `?${queryString}` : ""
+    }`,
     {},
     true
   );
@@ -462,7 +503,9 @@ export const adminMarkNotificationRead = (
   id: string
 ) =>
   request<{ ok: boolean }>(
-    `/admin/notifications/${encodeURIComponent(id)}/read`,
+    `/admin/notifications/${encodeURIComponent(
+      id
+    )}/read`,
     {
       method: "POST",
     },
