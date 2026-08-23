@@ -7,6 +7,7 @@ import {
   adminGetClientAppointments,
   adminGetAppointments,
   adminGetStaff,
+  adminDeleteClient,
   ApiRequestError,
   adminLogout,
 } from "../../api/client";
@@ -29,6 +30,13 @@ export default function ClientsTab() {
 
   const [selected, setSelected] = useState<ClientRow | null>(null);
   const [history, setHistory] = useState<Appointment[]>([]);
+
+  // --------------------------------------------------
+  // Suppression d'un compte client (avec ses RDV)
+  // --------------------------------------------------
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // --------------------------------------------------
   // Vue "par jour"
@@ -120,6 +128,33 @@ export default function ClientsTab() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
+
+  function closeModal() {
+    setSelected(null);
+    setConfirmingDelete(false);
+    setDeleteError(null);
+  }
+
+  async function handleDeleteClient() {
+    if (!selected || !selected.client_id) return;
+
+    setDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await adminDeleteClient(selected.client_id);
+      setClients((prev) =>
+        prev.filter((c) => c.client_id !== selected.client_id)
+      );
+      closeModal();
+    } catch (error) {
+      console.error("Erreur lors de la suppression du client :", error);
+      if (handleAuthError(error)) return;
+      setDeleteError(t.errorGeneric);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function openClientFromAppointment(appointment: Appointment) {
     if (!appointment.client_phone) return;
@@ -263,7 +298,7 @@ export default function ClientsTab() {
                 <p className="font-semibold">{selected.client_name || selected.client_phone}</p>
                 <p className="text-xs text-zinc-500">{selected.client_phone}</p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-zinc-400 hover:text-zinc-100">
+              <button onClick={closeModal} className="text-zinc-400 hover:text-zinc-100">
                 ✕
               </button>
             </div>
@@ -286,6 +321,49 @@ export default function ClientsTab() {
                 </div>
               ))}
             </div>
+
+            {selected.has_account && selected.client_id && (
+              <div className="px-5 py-4 border-t border-ink-800 space-y-2">
+                {deleteError && (
+                  <p className="text-xs text-red-400">{deleteError}</p>
+                )}
+
+                {!confirmingDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="w-full py-2 rounded-xl2 text-sm font-medium text-red-400 border border-red-900/60 hover:bg-red-950/30"
+                  >
+                    Supprimer ce compte client
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-zinc-400">
+                      Cette action supprime définitivement le compte et
+                      tous ses rendez-vous. Cette action est irréversible.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDelete(false)}
+                        disabled={deleting}
+                        className="flex-1 py-2 rounded-xl2 text-sm font-medium border border-ink-700 text-zinc-300 hover:border-ink-600 disabled:opacity-50"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteClient}
+                        disabled={deleting}
+                        className="flex-1 py-2 rounded-xl2 text-sm font-medium bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
+                      >
+                        {deleting ? "Suppression..." : "Confirmer la suppression"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
