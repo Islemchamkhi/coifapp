@@ -8,39 +8,34 @@ type Mode = "login" | "register";
 
 export default function ClientAuthPage() {
   const navigate = useNavigate();
+
   const { login, register } = useClientAuth();
-  const { language } = useLanguage();
+  const { lang } = useLanguage();
 
   const [mode, setMode] = useState<Mode>("login");
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const isArabic = language === "ar";
+  const isArabic = lang === "ar";
 
   const text = {
-    loginTitle: isArabic
-      ? "تسجيل الدخول"
-      : "Connexion",
+    loginTitle: isArabic ? "تسجيل الدخول" : "Connexion",
 
     registerTitle: isArabic
       ? "إنشاء حساب"
       : "Créer un compte",
 
-    name: isArabic
-      ? "الاسم"
-      : "Nom",
+    name: isArabic ? "الاسم" : "Nom",
 
-    phone: isArabic
-      ? "رقم الهاتف"
-      : "Téléphone",
+    phone: isArabic ? "رقم الهاتف" : "Téléphone",
 
     email: isArabic
       ? "البريد الإلكتروني"
@@ -107,15 +102,13 @@ export default function ClientAuthPage() {
       : "Une erreur est survenue. Veuillez réessayer.",
   };
 
-  /**
-   * ============================================================
-   * EMAIL
-   * ============================================================
-   *
-   * L'email est FACULTATIF.
-   *
-   * Une chaîne vide est donc autorisée.
-   */
+  // ============================================================
+  // EMAIL
+  // ============================================================
+  // L'email est facultatif.
+  // Vide = accepté.
+  // Rempli = validation du format.
+  // ============================================================
 
   const isValidEmail = (value: string) => {
     if (!value.trim()) {
@@ -127,11 +120,9 @@ export default function ClientAuthPage() {
     );
   };
 
-  /**
-   * ============================================================
-   * SUBMIT
-   * ============================================================
-   */
+  // ============================================================
+  // SUBMIT
+  // ============================================================
 
   const handleSubmit = async (
     event: React.FormEvent
@@ -140,17 +131,12 @@ export default function ClientAuthPage() {
 
     setError("");
 
-    /**
-     * ----------------------------------------------------------
-     * LOGIN
-     * ----------------------------------------------------------
-     */
+    // ========================================================
+    // LOGIN
+    // ========================================================
 
     if (mode === "login") {
-      if (
-        !phone.trim() ||
-        !password
-      ) {
+      if (!phone.trim() || !password) {
         setError(text.requiredFields);
         return;
       }
@@ -166,8 +152,7 @@ export default function ClientAuthPage() {
         navigate("/account");
       } catch (err: any) {
         setError(
-          err?.message ||
-            text.genericError
+          err?.message || text.genericError
         );
       } finally {
         setLoading(false);
@@ -176,11 +161,9 @@ export default function ClientAuthPage() {
       return;
     }
 
-    /**
-     * ----------------------------------------------------------
-     * REGISTER
-     * ----------------------------------------------------------
-     */
+    // ========================================================
+    // REGISTER
+    // ========================================================
 
     if (
       !name.trim() ||
@@ -196,25 +179,16 @@ export default function ClientAuthPage() {
       return;
     }
 
-    if (
-      password !== confirmPassword
-    ) {
+    if (password !== confirmPassword) {
       setError(text.passwordMismatch);
       return;
     }
 
-    /**
-     * EMAIL FACULTATIF
-     *
-     * Si vide :
-     * undefined
-     *
-     * Si rempli :
-     * email normalisé
-     */
+    // ========================================================
+    // EMAIL FACULTATIF
+    // ========================================================
 
-    const cleanedEmail =
-      email.trim();
+    const cleanedEmail = email.trim();
 
     if (
       cleanedEmail &&
@@ -229,35 +203,26 @@ export default function ClientAuthPage() {
 
       await register({
         name: name.trim(),
-
         phone: phone.trim(),
-
-        email:
-          cleanedEmail || undefined,
-
+        email: cleanedEmail || undefined,
         password,
       });
 
       navigate("/account");
     } catch (err: any) {
       setError(
-        err?.message ||
-          text.genericError
+        err?.message || text.genericError
       );
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * ============================================================
-   * CHANGE MODE
-   * ============================================================
-   */
+  // ============================================================
+  // CHANGE MODE
+  // ============================================================
 
-  const switchMode = (
-    newMode: Mode
-  ) => {
+  const switchMode = (newMode: Mode) => {
     setMode(newMode);
     setError("");
   };
@@ -266,9 +231,7 @@ export default function ClientAuthPage() {
     <div className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="mx-auto w-full max-w-md">
 
-        {/* -------------------------------------------------- */}
         {/* HEADER */}
-        {/* -------------------------------------------------- */}
 
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold text-gray-900">
@@ -282,23 +245,17 @@ export default function ClientAuthPage() {
           </p>
         </div>
 
-        {/* -------------------------------------------------- */}
         {/* CARD */}
-        {/* -------------------------------------------------- */}
 
         <div className="rounded-2xl bg-white p-6 shadow-sm">
 
-          {/* ------------------------------------------------ */}
           {/* TABS */}
-          {/* ------------------------------------------------ */}
 
           <div className="mb-6 grid grid-cols-2 rounded-xl bg-gray-100 p-1">
 
             <button
               type="button"
-              onClick={() =>
-                switchMode("login")
-              }
+              onClick={() => switchMode("login")}
               className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
                 mode === "login"
                   ? "bg-white text-gray-900 shadow-sm"
@@ -324,9 +281,7 @@ export default function ClientAuthPage() {
 
           </div>
 
-          {/* ------------------------------------------------ */}
           {/* ERROR */}
-          {/* ------------------------------------------------ */}
 
           {error && (
             <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -334,18 +289,14 @@ export default function ClientAuthPage() {
             </div>
           )}
 
-          {/* ------------------------------------------------ */}
           {/* FORM */}
-          {/* ------------------------------------------------ */}
 
           <form
             onSubmit={handleSubmit}
             className="space-y-4"
           >
 
-            {/* ---------------------------------------------- */}
-            {/* NAME - REGISTER ONLY */}
-            {/* ---------------------------------------------- */}
+            {/* NAME */}
 
             {mode === "register" && (
               <div>
@@ -357,9 +308,7 @@ export default function ClientAuthPage() {
                   type="text"
                   value={name}
                   onChange={(event) =>
-                    setName(
-                      event.target.value
-                    )
+                    setName(event.target.value)
                   }
                   autoComplete="name"
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
@@ -368,9 +317,7 @@ export default function ClientAuthPage() {
               </div>
             )}
 
-            {/* ---------------------------------------------- */}
             {/* PHONE */}
-            {/* ---------------------------------------------- */}
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -381,9 +328,7 @@ export default function ClientAuthPage() {
                 type="tel"
                 value={phone}
                 onChange={(event) =>
-                  setPhone(
-                    event.target.value
-                  )
+                  setPhone(event.target.value)
                 }
                 autoComplete="tel"
                 required
@@ -392,9 +337,7 @@ export default function ClientAuthPage() {
               />
             </div>
 
-            {/* ---------------------------------------------- */}
-            {/* EMAIL - REGISTER ONLY - FACULTATIVE */}
-            {/* ---------------------------------------------- */}
+            {/* EMAIL */}
 
             {mode === "register" && (
               <div>
@@ -410,9 +353,7 @@ export default function ClientAuthPage() {
                   type="email"
                   value={email}
                   onChange={(event) =>
-                    setEmail(
-                      event.target.value
-                    )
+                    setEmail(event.target.value)
                   }
                   autoComplete="email"
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
@@ -427,9 +368,7 @@ export default function ClientAuthPage() {
               </div>
             )}
 
-            {/* ---------------------------------------------- */}
             {/* PASSWORD */}
-            {/* ---------------------------------------------- */}
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -440,9 +379,7 @@ export default function ClientAuthPage() {
                 type="password"
                 value={password}
                 onChange={(event) =>
-                  setPassword(
-                    event.target.value
-                  )
+                  setPassword(event.target.value)
                 }
                 autoComplete={
                   mode === "login"
@@ -455,9 +392,7 @@ export default function ClientAuthPage() {
               />
             </div>
 
-            {/* ---------------------------------------------- */}
-            {/* CONFIRM PASSWORD - REGISTER ONLY */}
-            {/* ---------------------------------------------- */}
+            {/* CONFIRM PASSWORD */}
 
             {mode === "register" && (
               <div>
@@ -476,16 +411,12 @@ export default function ClientAuthPage() {
                   autoComplete="new-password"
                   required
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
-                  placeholder={
-                    text.confirmPassword
-                  }
+                  placeholder={text.confirmPassword}
                 />
               </div>
             )}
 
-            {/* ---------------------------------------------- */}
             {/* SUBMIT */}
-            {/* ---------------------------------------------- */}
 
             <button
               type="submit"
@@ -501,9 +432,7 @@ export default function ClientAuthPage() {
 
           </form>
 
-          {/* ------------------------------------------------ */}
-          {/* SWITCH TEXT */}
-          {/* ------------------------------------------------ */}
+          {/* SWITCH */}
 
           <div className="mt-6 text-center text-sm text-gray-500">
 
@@ -514,9 +443,7 @@ export default function ClientAuthPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    switchMode(
-                      "register"
-                    )
+                    switchMode("register")
                   }
                   className="font-semibold text-gray-900 underline"
                 >
@@ -542,9 +469,7 @@ export default function ClientAuthPage() {
           </div>
         </div>
 
-        {/* -------------------------------------------------- */}
         {/* BACK TO BOOKING */}
-        {/* -------------------------------------------------- */}
 
         <div className="mt-6 text-center">
           <Link
