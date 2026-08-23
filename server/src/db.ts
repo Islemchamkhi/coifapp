@@ -117,7 +117,7 @@ db.prepare = ((sql: string) => {
       const {
         duration,
         ...rest
-      } = result as unknown as Record<
+      } = result as unknown as Record
         string,
         unknown
       >;
@@ -360,25 +360,46 @@ addColumnIfMissing(
  * ============================================================
  * SEED STAFF
  * ============================================================
+ *
+ * IMPORTANT (correction du bug "Abdou disparu après Turso") :
+ * L'ancienne version de ce bloc ne vérifiait que
+ * `COUNT(*) === 0` sur toute la table `staff`. Après le passage
+ * à Turso, la table contenait déjà 1 ligne (Rayen) au moment du
+ * premier démarrage du serveur sur Turso : la condition
+ * `staffCount.c === 0` était donc fausse dès le premier lancement,
+ * et Abdou n'a plus jamais été recréé automatiquement, même après
+ * de nombreux redéploiements.
+ *
+ * Correction : on vérifie désormais l'existence de CHAQUE
+ * coiffeur requis individuellement, par son nom, plutôt que de se
+ * fier au nombre total de lignes. Un coiffeur déjà présent
+ * (Rayen) n'est jamais recréé ni dupliqué ; seul un coiffeur
+ * manquant (Abdou) est ajouté, avec exactement les mêmes champs
+ * que l'ancien système (name, active = 1). Aucune autre donnée
+ * (id, rendez-vous, clients, services) n'est touchée.
  */
 
-const staffCount = db
-  .prepare("SELECT COUNT(*) AS c FROM staff")
-  .get() as { c: number };
+const REQUIRED_STAFF = ["Rayen", "Abdou"];
 
-if (staffCount.c === 0) {
-  console.log("🌱 Création des coiffeurs par défaut...");
+const findStaffByName = db.prepare(
+  "SELECT id FROM staff WHERE name = ?"
+);
 
-  const insertStaff = db.prepare(
-    "INSERT INTO staff (name, active) VALUES (?, 1)"
-  );
+const insertStaff = db.prepare(
+  "INSERT INTO staff (name, active) VALUES (?, 1)"
+);
 
-  const insertMany = db.transaction(() => {
-    insertStaff.run("Abdou");
-    insertStaff.run("Rayen");
-  });
+for (const staffName of REQUIRED_STAFF) {
+  const existing = findStaffByName.get(staffName) as
+    | { id: number }
+    | undefined;
 
-  insertMany();
+  if (!existing) {
+    console.log(
+      `🌱 Coiffeur manquant détecté sur Turso, création de : ${staffName}`
+    );
+    insertStaff.run(staffName);
+  }
 }
 
 /**
