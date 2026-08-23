@@ -8,9 +8,7 @@ type Mode = "login" | "register";
 export default function ClientAuthPage() {
   const navigate = useNavigate();
   const { login, register } = useClientAuth();
-
   const { lang } = useLanguage();
-  const isArabic = lang === "ar";
 
   const [mode, setMode] = useState<Mode>("login");
 
@@ -23,6 +21,8 @@ export default function ClientAuthPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const isArabic = lang === "ar";
+
   const text = {
     loginTitle: isArabic ? "تسجيل الدخول" : "Connexion",
 
@@ -32,7 +32,9 @@ export default function ClientAuthPage() {
 
     name: isArabic ? "الاسم" : "Nom",
 
-    phone: isArabic ? "رقم الهاتف" : "Téléphone",
+    phone: isArabic
+      ? "رقم الهاتف"
+      : "Téléphone",
 
     email: isArabic
       ? "البريد الإلكتروني"
@@ -99,9 +101,13 @@ export default function ClientAuthPage() {
       : "Une erreur est survenue. Veuillez réessayer.",
 
     emptyEmail: isArabic
-      ? "يمكنك ترك هذا الحقل فارغًا."
-      : "Vous pouvez laisser ce champ vide.",
+      ? "يمكنك ترك البريد الإلكتروني فارغًا."
+      : "Vous pouvez laisser l'email vide.",
   };
+
+  // ============================================================
+  // EMAIL VALIDATION
+  // ============================================================
 
   const isValidEmail = (value: string) => {
     if (!value.trim()) {
@@ -113,15 +119,20 @@ export default function ClientAuthPage() {
     );
   };
 
+  // ============================================================
+  // SUBMIT
+  // ============================================================
+
   const handleSubmit = async (
-    event: React.FormEvent
+    event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
+
     setError("");
 
-    // ============================================================
+    // ==========================================================
     // LOGIN
-    // ============================================================
+    // ==========================================================
 
     if (mode === "login") {
       if (!phone.trim() || !password) {
@@ -140,8 +151,7 @@ export default function ClientAuthPage() {
         navigate("/account");
       } catch (err: any) {
         setError(
-          err?.message ||
-            text.genericError
+          err?.message || text.genericError
         );
       } finally {
         setLoading(false);
@@ -150,9 +160,9 @@ export default function ClientAuthPage() {
       return;
     }
 
-    // ============================================================
+    // ==========================================================
     // REGISTER
-    // ============================================================
+    // ==========================================================
 
     if (
       !name.trim() ||
@@ -196,8 +206,7 @@ export default function ClientAuthPage() {
       navigate("/account");
     } catch (err: any) {
       setError(
-        err?.message ||
-          text.genericError
+        err?.message || text.genericError
       );
     } finally {
       setLoading(false);
@@ -213,97 +222,97 @@ export default function ClientAuthPage() {
     setError("");
   };
 
+  // ============================================================
+  // UI
+  // ============================================================
+
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-8">
+    <div
+      className="min-h-screen bg-[#0f172a] px-4 py-8 text-white"
+      dir={isArabic ? "rtl" : "ltr"}
+    >
       <div className="mx-auto w-full max-w-md">
 
-        {/* ====================================================== */}
-        {/* HEADER */}
-        {/* ====================================================== */}
+        {/* ======================================================
+            HEADER
+        ====================================================== */}
 
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold tracking-tight text-white">
             Rayen Coif
           </h1>
 
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-slate-400">
             {mode === "login"
               ? text.loginTitle
               : text.registerTitle}
           </p>
         </div>
 
-        {/* ====================================================== */}
-        {/* CARD */}
-        {/* ====================================================== */}
+        {/* ======================================================
+            CARD
+        ====================================================== */}
 
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-700 bg-[#111827] p-6 shadow-2xl">
 
-          {/* ==================================================== */}
-          {/* TABS */}
-          {/* ==================================================== */}
+          {/* ====================================================
+              TABS
+          ==================================================== */}
 
-          <div className="mb-6 grid grid-cols-2 rounded-xl bg-gray-100 p-1">
-
-            {/* LOGIN TAB */}
+          <div className="mb-6 grid grid-cols-2 rounded-xl bg-[#1e293b] p-1">
 
             <button
               type="button"
-              onClick={() =>
-                switchMode("login")
-              }
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              onClick={() => switchMode("login")}
+              className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 mode === "login"
-                  ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-500 hover:text-gray-900"
+                  ? "bg-[#0f172a] text-white shadow-md"
+                  : "text-slate-400 hover:text-white"
               }`}
             >
               {text.connect}
             </button>
 
-            {/* REGISTER TAB */}
-
             <button
               type="button"
-              onClick={() =>
-                switchMode("register")
-              }
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              onClick={() => switchMode("register")}
+              className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 mode === "register"
-                  ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-500 hover:text-gray-900"
+                  ? "bg-[#0f172a] text-white shadow-md"
+                  : "text-slate-400 hover:text-white"
               }`}
             >
               {text.createAccount}
             </button>
+
           </div>
 
-          {/* ==================================================== */}
-          {/* ERROR */}
-          {/* ==================================================== */}
+          {/* ====================================================
+              ERROR
+          ==================================================== */}
 
           {error && (
-            <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mb-5 rounded-xl border border-red-900 bg-red-950/50 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           )}
 
-          {/* ==================================================== */}
-          {/* FORM */}
-          {/* ==================================================== */}
+          {/* ====================================================
+              FORM
+          ==================================================== */}
 
           <form
             onSubmit={handleSubmit}
             className="space-y-4"
           >
 
-            {/* ================================================== */}
-            {/* NAME */}
-            {/* ================================================== */}
+            {/* ==================================================
+                NAME
+            ================================================== */}
 
             {mode === "register" && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
+                <label className="mb-1.5 block text-sm font-medium text-slate-200">
                   {text.name}
                 </label>
 
@@ -311,24 +320,22 @@ export default function ClientAuthPage() {
                   type="text"
                   value={name}
                   onChange={(event) =>
-                    setName(
-                      event.target.value
-                    )
+                    setName(event.target.value)
                   }
                   autoComplete="name"
-                  required
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
                   placeholder={text.name}
+                  required
+                  className="w-full rounded-xl border border-slate-600 bg-[#1e293b] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-slate-400 focus:ring-2 focus:ring-slate-700"
                 />
               </div>
             )}
 
-            {/* ================================================== */}
-            {/* PHONE */}
-            {/* ================================================== */}
+            {/* ==================================================
+                PHONE
+            ================================================== */}
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-slate-200">
                 {text.phone}
               </label>
 
@@ -336,27 +343,25 @@ export default function ClientAuthPage() {
                 type="tel"
                 value={phone}
                 onChange={(event) =>
-                  setPhone(
-                    event.target.value
-                  )
+                  setPhone(event.target.value)
                 }
                 autoComplete="tel"
                 required
-                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
                 placeholder={text.phone}
+                className="w-full rounded-xl border border-slate-600 bg-[#1e293b] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-slate-400 focus:ring-2 focus:ring-slate-700"
               />
             </div>
 
-            {/* ================================================== */}
-            {/* EMAIL */}
-            {/* ================================================== */}
+            {/* ==================================================
+                EMAIL
+            ================================================== */}
 
             {mode === "register" && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
+                <label className="mb-1.5 block text-sm font-medium text-slate-200">
                   {text.email}
 
-                  <span className="ml-2 text-xs font-normal text-gray-400">
+                  <span className="ml-2 text-xs font-normal text-slate-500">
                     ({text.optional})
                   </span>
                 </label>
@@ -365,27 +370,25 @@ export default function ClientAuthPage() {
                   type="email"
                   value={email}
                   onChange={(event) =>
-                    setEmail(
-                      event.target.value
-                    )
+                    setEmail(event.target.value)
                   }
                   autoComplete="email"
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
                   placeholder={`${text.email} (${text.optional})`}
+                  className="w-full rounded-xl border border-slate-600 bg-[#1e293b] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-slate-400 focus:ring-2 focus:ring-slate-700"
                 />
 
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="mt-1.5 text-xs text-slate-500">
                   {text.emptyEmail}
                 </p>
               </div>
             )}
 
-            {/* ================================================== */}
-            {/* PASSWORD */}
-            {/* ================================================== */}
+            {/* ==================================================
+                PASSWORD
+            ================================================== */}
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-slate-200">
                 {text.password}
               </label>
 
@@ -393,9 +396,7 @@ export default function ClientAuthPage() {
                 type="password"
                 value={password}
                 onChange={(event) =>
-                  setPassword(
-                    event.target.value
-                  )
+                  setPassword(event.target.value)
                 }
                 autoComplete={
                   mode === "login"
@@ -403,18 +404,18 @@ export default function ClientAuthPage() {
                     : "new-password"
                 }
                 required
-                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
                 placeholder={text.password}
+                className="w-full rounded-xl border border-slate-600 bg-[#1e293b] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-slate-400 focus:ring-2 focus:ring-slate-700"
               />
             </div>
 
-            {/* ================================================== */}
-            {/* CONFIRM PASSWORD */}
-            {/* ================================================== */}
+            {/* ==================================================
+                CONFIRM PASSWORD
+            ================================================== */}
 
             {mode === "register" && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
+                <label className="mb-1.5 block text-sm font-medium text-slate-200">
                   {text.confirmPassword}
                 </label>
 
@@ -428,22 +429,20 @@ export default function ClientAuthPage() {
                   }
                   autoComplete="new-password"
                   required
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
-                  placeholder={
-                    text.confirmPassword
-                  }
+                  placeholder={text.confirmPassword}
+                  className="w-full rounded-xl border border-slate-600 bg-[#1e293b] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-slate-400 focus:ring-2 focus:ring-slate-700"
                 />
               </div>
             )}
 
-            {/* ================================================== */}
-            {/* SUBMIT */}
-            {/* ================================================== */}
+            {/* ==================================================
+                SUBMIT
+            ================================================== */}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-gray-900 px-4 py-3 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 w-full rounded-xl bg-white px-4 py-3 font-semibold text-slate-900 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading
                 ? "..."
@@ -453,11 +452,11 @@ export default function ClientAuthPage() {
             </button>
           </form>
 
-          {/* ==================================================== */}
-          {/* SWITCH TEXT */}
-          {/* ==================================================== */}
+          {/* ====================================================
+              SWITCH MODE
+          ==================================================== */}
 
-          <div className="mt-6 text-center text-sm text-gray-500">
+          <div className="mt-6 text-center text-sm text-slate-400">
 
             {mode === "login" ? (
               <>
@@ -468,7 +467,7 @@ export default function ClientAuthPage() {
                   onClick={() =>
                     switchMode("register")
                   }
-                  className="font-semibold text-gray-900 underline hover:text-gray-700"
+                  className="font-semibold text-white underline underline-offset-2 hover:text-slate-300"
                 >
                   {text.createAccount}
                 </button>
@@ -482,27 +481,29 @@ export default function ClientAuthPage() {
                   onClick={() =>
                     switchMode("login")
                   }
-                  className="font-semibold text-gray-900 underline hover:text-gray-700"
+                  className="font-semibold text-white underline underline-offset-2 hover:text-slate-300"
                 >
                   {text.connect}
                 </button>
               </>
             )}
+
           </div>
         </div>
 
-        {/* ====================================================== */}
-        {/* BACK TO BOOKING */}
-        {/* ====================================================== */}
+        {/* ======================================================
+            BACK TO BOOKING
+        ====================================================== */}
 
         <div className="mt-6 text-center">
           <Link
             to="/"
-            className="text-sm text-gray-500 underline hover:text-gray-900"
+            className="text-sm text-slate-400 underline underline-offset-2 transition hover:text-white"
           >
             ← {text.back}
           </Link>
         </div>
+
       </div>
     </div>
   );
