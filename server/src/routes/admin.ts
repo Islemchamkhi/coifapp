@@ -1150,6 +1150,79 @@ router.get("/clients", (req, res) => {
 });
 
 // =========================================================
+// DELETE CLIENT ACCOUNT
+// =========================================================
+//
+// DELETE /api/admin/clients/:id
+//
+// Supprime définitivement un compte client (table `clients`)
+// ainsi que TOUS ses rendez-vous (passés et à venir), comme
+// demandé explicitement par l'admin depuis l'interface.
+//
+// Portée volontairement limitée : ne touche qu'à ce client et
+// à ses propres rendez-vous. Ne modifie rien d'autre (autres
+// clients, staff, services, notifications d'autres RDV, etc.).
+// =========================================================
+
+router.delete("/clients/:id", (req, res) => {
+  const clientId = Number(req.params.id);
+
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({
+      error: "INVALID_ID",
+      message: "Identifiant client invalide.",
+    });
+  }
+
+  const existing = db
+    .prepare("SELECT id FROM clients WHERE id = ?")
+    .get(clientId);
+
+  if (!existing) {
+    return res.status(404).json({
+      error: "NOT_FOUND",
+      message: "Compte client introuvable.",
+    });
+  }
+
+  try {
+    const deleteClientAndAppointments = db.transaction(() => {
+      // Les notifications référencent appointment_id avec
+      // ON DELETE... non défini explicitement dans le schéma ;
+      // on les nettoie donc en premier pour rester cohérent,
+      // uniquement pour les RDV de CE client.
+      db.prepare(
+        `
+        DELETE FROM notifications
+        WHERE appointment_id IN (
+          SELECT id FROM appointments WHERE client_id = ?
+        )
+        `
+      ).run(clientId);
+
+      db.prepare(
+        "DELETE FROM appointments WHERE client_id = ?"
+      ).run(clientId);
+
+      db.prepare(
+        "DELETE FROM clients WHERE id = ?"
+      ).run(clientId);
+    });
+
+    deleteClientAndAppointments();
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("❌ Admin delete client error:", error);
+
+    return res.status(500).json({
+      error: "DELETE_CLIENT_FAILED",
+      message: "Impossible de supprimer ce compte client.",
+    });
+  }
+});
+
+// =========================================================
 // CLIENT ACCOUNT DETAILS
 // =========================================================
 //

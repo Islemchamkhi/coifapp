@@ -93,12 +93,14 @@ export interface ClientAccount {
 }
 
 export interface ClientRow {
+  client_id?: number | null;
   client_phone: string;
   client_name: string;
   total_appointments: number;
   first_visit: string;
   last_visit: string;
   cancellations: number;
+  has_account?: boolean;
 }
 
 export interface StatsResponse {

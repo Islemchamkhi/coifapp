@@ -528,6 +528,19 @@ export const adminGetClientAppointments = (
     true
   );
 
+export const adminDeleteClient = (
+  clientId: number
+) =>
+  request<{ ok: boolean }>(
+    `/admin/clients/${encodeURIComponent(
+      String(clientId)
+    )}`,
+    {
+      method: "DELETE",
+    },
+    true
+  );
+
 /* =========================================================
    ADMIN - STATISTICS
    ========================================================= */
