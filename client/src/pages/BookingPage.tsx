@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Link } from "react-router-dom";
-import { useClientAuth } from "../auth/ClientAuthContext";
 
+import { useClientAuth } from "../auth/ClientAuthContext";
 import { useLanguage } from "../i18n/LanguageContext";
+
 import LanguageToggle from "../components/LanguageToggle";
 import ServiceSelector from "../components/ServiceSelector";
 import StaffSelector from "../components/StaffSelector";
@@ -43,23 +44,34 @@ export default function BookingPage() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
 
-  const [service, setService] = useState<ServiceItem | null>(null);
-  const [staff, setStaff] = useState<Staff | null>(null);
-  const [date, setDate] = useState<string | null>(null);
-  const [time, setTime] = useState<string | null>(null);
+  const [service, setService] =
+    useState<ServiceItem | null>(null);
 
-  const [customTime, setCustomTime] = useState("");
-  const [useCustomTime, setUseCustomTime] = useState(false);
+  const [staff, setStaff] =
+    useState<Staff | null>(null);
 
-  /**
+  const [date, setDate] =
+    useState<string | null>(null);
+
+  const [time, setTime] =
+    useState<string | null>(null);
+
+  const [customTime, setCustomTime] =
+    useState("");
+
+  const [useCustomTime, setUseCustomTime] =
+    useState(false);
+
+  /*
    * ============================================================
-   * CONFIGURATION DE RÉSERVATION (mode interval / flexible)
+   * CONFIGURATION DE RÉSERVATION
    * ============================================================
    *
-   * Par défaut "interval" pendant le chargement, pour reproduire
-   * exactement le comportement historique tant que la config
-   * n'est pas encore arrivée du serveur (aucune régression
-   * visible si l'appel est lent).
+   * Par défaut :
+   * interval = comportement historique avec grille de créneaux.
+   *
+   * Si le serveur renvoie "flexible", le client saisit directement
+   * une heure personnalisée.
    */
   const [bookingSettings, setBookingSettings] =
     useState<BookingSettings>({
@@ -71,27 +83,58 @@ export default function BookingPage() {
     getBookingSettings()
       .then(setBookingSettings)
       .catch(() => {
-        // En cas d'échec, on reste en mode "interval" par défaut
-        // (comportement historique) plutôt que de bloquer la
-        // réservation.
+        /*
+         * En cas d'erreur, on conserve le mode interval
+         * par défaut afin de ne pas bloquer la réservation.
+         */
       });
   }, []);
 
-  const isFlexibleMode = bookingSettings.bookingMode === "flexible";
+  const isFlexibleMode =
+    bookingSettings.bookingMode === "flexible";
 
-  const [slots, setSlots] = useState<SlotWithStatus[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
+  /*
+   * ============================================================
+   * CRÉNEAUX
+   * ============================================================
+   */
+  const [slots, setSlots] =
+    useState<SlotWithStatus[]>([]);
 
-  const [clientName, setClientName] = useState("");
-  const [clientPhone, setClientPhone] = useState("");
+  const [loadingSlots, setLoadingSlots] =
+    useState(false);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  /*
+   * ============================================================
+   * CLIENT
+   * ============================================================
+   */
+  const [clientName, setClientName] =
+    useState("");
 
+  const [clientPhone, setClientPhone] =
+    useState("");
+
+  /*
+   * ============================================================
+   * FORMULAIRE
+   * ============================================================
+   */
+  const [submitting, setSubmitting] =
+    useState(false);
+
+  const [formError, setFormError] =
+    useState<string | null>(null);
+
+  /*
+   * ============================================================
+   * CONFIRMATION
+   * ============================================================
+   */
   const [confirmation, setConfirmation] =
     useState<BookingConfirmation | null>(null);
 
-  /**
+  /*
    * ============================================================
    * CLIENT CONNECTÉ
    * ============================================================
@@ -103,13 +146,16 @@ export default function BookingPage() {
     }
   }, [client]);
 
-  /**
+  /*
    * ============================================================
    * CHARGEMENT SERVICES + COIFFEURS
    * ============================================================
    */
   useEffect(() => {
-    Promise.all([getServices(), getStaff()])
+    Promise.all([
+      getServices(),
+      getStaff(),
+    ])
       .then(([servicesData, staffData]) => {
         setServices(servicesData);
         setStaffList(staffData);
@@ -119,15 +165,13 @@ export default function BookingPage() {
       });
   }, []);
 
-  /**
+  /*
    * ============================================================
-   * RÉINITIALISATION DE L'HEURE CHOISIE
+   * RÉINITIALISATION HEURE
    * ============================================================
    *
-   * Dès que service, coiffeur ou date change, toute heure
-   * précédemment choisie (grille ou heure libre) n'est plus
-   * valable et doit être réinitialisée — que le salon soit en
-   * mode "interval" ou "flexible".
+   * Dès que le service, le coiffeur ou la date change,
+   * l'ancien créneau ne doit plus rester sélectionné.
    */
   useEffect(() => {
     if (!service || !staff || !date) {
@@ -140,43 +184,37 @@ export default function BookingPage() {
     setFormError(null);
   }, [service, staff, date]);
 
-  /**
+  /*
    * ============================================================
    * CHARGEMENT DES CRÉNEAUX
    * ============================================================
    *
-   * En mode "flexible", il n'y a pas de grille à afficher : le
-   * client saisit directement une heure précise. On évite donc
-   * cet appel réseau inutile.
+   * En mode flexible, aucune grille n'est nécessaire.
+   *
+   * En mode interval :
+   *
+   * API → res.slots → setSlots(res.slots)
+   *
+   * Il n'y a aucune transformation du statut côté frontend.
    */
   useEffect(() => {
-    if (!service || !staff || !date || isFlexibleMode) {
+    if (
+      !service ||
+      !staff ||
+      !date ||
+      isFlexibleMode
+    ) {
       return;
     }
 
     setLoadingSlots(true);
 
-    getAvailability(staff.id, service.id, date)
+    getAvailability(
+      staff.id,
+      service.id,
+      date
+    )
       .then((res) => {
-        // ------------------------------------------------------
-        // LOG TEMPORAIRE DE DIAGNOSTIC — à retirer une fois le
-        // bug d'affichage confirmé/résolu. Montre EXACTEMENT ce
-        // que l'API a renvoyé, sans aucune transformation.
-        // ------------------------------------------------------
-        console.log(
-          "[AVAILABILITY API] (chargement initial) staffId=" +
-            staff.id +
-            " serviceId=" +
-            service.id +
-            " date=" +
-            date +
-            " durationMinutes=" +
-            res.durationMinutes
-        );
-        res.slots.forEach((s) =>
-          console.log("[AVAILABILITY API]", s.time, s.status)
-        );
-
         setSlots(res.slots);
       })
       .catch(() => {
@@ -185,12 +223,25 @@ export default function BookingPage() {
       .finally(() => {
         setLoadingSlots(false);
       });
-  }, [service, staff, date, isFlexibleMode]);
+  }, [
+    service,
+    staff,
+    date,
+    isFlexibleMode,
+  ]);
 
-  /**
+  /*
    * ============================================================
    * ACTUALISATION DE LA DISPONIBILITÉ
    * ============================================================
+   *
+   * Actualisation :
+   * - toutes les 60 secondes
+   * - lorsque la fenêtre reprend le focus
+   * - lorsque l'onglet redevient visible
+   *
+   * On ne rafraîchit pas pendant qu'un créneau est déjà sélectionné
+   * ou lorsqu'une heure personnalisée est utilisée.
    */
   useEffect(() => {
     if (
@@ -205,31 +256,31 @@ export default function BookingPage() {
     }
 
     const refreshAvailability = () => {
-      getAvailability(staff.id, service.id, date)
+      getAvailability(
+        staff.id,
+        service.id,
+        date
+      )
         .then((res) => {
-          console.log(
-            "[AVAILABILITY API] (actualisation périodique) staffId=" +
-              staff.id +
-              " serviceId=" +
-              service.id +
-              " date=" +
-              date +
-              " durationMinutes=" +
-              res.durationMinutes
-          );
-          res.slots.forEach((s) =>
-            console.log("[AVAILABILITY API]", s.time, s.status)
-          );
-
           setSlots(res.slots);
         })
-        .catch(() => {});
+        .catch(() => {
+          /*
+           * Une erreur de refresh ne doit pas effacer
+           * les créneaux déjà affichés.
+           */
+        });
     };
 
-    const interval = setInterval(refreshAvailability, 60000);
+    const interval = window.setInterval(
+      refreshAvailability,
+      60000
+    );
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (
+        document.visibilityState === "visible"
+      ) {
         refreshAvailability();
       }
     };
@@ -239,62 +290,65 @@ export default function BookingPage() {
       handleVisibilityChange
     );
 
-    window.addEventListener("focus", refreshAvailability);
+    window.addEventListener(
+      "focus",
+      refreshAvailability
+    );
 
     return () => {
-      clearInterval(interval);
+      window.clearInterval(interval);
 
       document.removeEventListener(
         "visibilitychange",
         handleVisibilityChange
       );
 
-      window.removeEventListener("focus", refreshAvailability);
+      window.removeEventListener(
+        "focus",
+        refreshAvailability
+      );
     };
-  }, [service, staff, date, time, useCustomTime, isFlexibleMode]);
+  }, [
+    service,
+    staff,
+    date,
+    time,
+    useCustomTime,
+    isFlexibleMode,
+  ]);
 
-  /**
+  /*
    * ============================================================
    * HEURE EFFECTIVE
    * ============================================================
    */
-  /**
-   * ============================================================
-   * LOG TEMPORAIRE DE DIAGNOSTIC
-   * ============================================================
-   * Se déclenche à chaque changement de `slots` — c'est-à-dire
-   * exactement au moment où TimeSlotGrid va recevoir ces données
-   * en props (slots={slots}, sans transformation, voir plus bas).
-   * À retirer une fois le bug d'affichage confirmé/résolu.
-   */
-  useEffect(() => {
-    if (slots.length === 0) return;
-    console.log(
-      "[AVAILABILITY UI] state 'slots' sur le point d'être rendu par TimeSlotGrid :"
-    );
-    slots.forEach((s) => console.log("[AVAILABILITY UI]", s.time, s.status));
-  }, [slots]);
+  const effectiveTime =
+    useCustomTime
+      ? customTime
+      : time;
 
-  const effectiveTime = useCustomTime ? customTime : time;
-
-  /**
+  /*
    * ============================================================
    * ÉTAPE ACTUELLE
    * ============================================================
    */
-  const step: Step = confirmation
-    ? "confirmed"
-    : !service
+  const step: Step =
+    confirmation
+      ? "confirmed"
+      : !service
       ? "service"
       : !staff
-        ? "staff"
-        : !date
-          ? "date"
-          : !effectiveTime
-            ? "slot"
-            : "details";
+      ? "staff"
+      : !date
+      ? "date"
+      : !effectiveTime
+      ? "slot"
+      : "details";
 
-  const stepOrder: Exclude<Step, "confirmed">[] = [
+  const stepOrder: Exclude<
+    Step,
+    "confirmed"
+  >[] = [
     "service",
     "staff",
     "date",
@@ -303,9 +357,11 @@ export default function BookingPage() {
   ];
 
   const currentIndex =
-    step === "confirmed" ? stepOrder.length : stepOrder.indexOf(step);
+    step === "confirmed"
+      ? stepOrder.length
+      : stepOrder.indexOf(step);
 
-  /**
+  /*
    * ============================================================
    * RETOUR
    * ============================================================
@@ -319,6 +375,7 @@ export default function BookingPage() {
       setCustomTime("");
       setUseCustomTime(false);
       setFormError(null);
+      setSlots([]);
       return;
     }
 
@@ -329,6 +386,7 @@ export default function BookingPage() {
       setCustomTime("");
       setUseCustomTime(false);
       setFormError(null);
+      setSlots([]);
       return;
     }
 
@@ -338,6 +396,7 @@ export default function BookingPage() {
       setCustomTime("");
       setUseCustomTime(false);
       setFormError(null);
+      setSlots([]);
       return;
     }
 
@@ -349,32 +408,48 @@ export default function BookingPage() {
     }
   }
 
-  /**
+  /*
    * ============================================================
    * NORMALISATION HEURE
    * ============================================================
    */
-  function normalizeTime(value: string): string {
-    const cleaned = value.replace(/[^\d]/g, "").slice(0, 4);
+  function normalizeTime(
+    value: string
+  ): string {
+    const cleaned = value
+      .replace(/[^\d]/g, "")
+      .slice(0, 4);
 
     if (cleaned.length <= 2) {
       return cleaned;
     }
 
-    return `${cleaned.slice(0, 2)}:${cleaned.slice(2)}`;
+    return `${cleaned.slice(
+      0,
+      2
+    )}:${cleaned.slice(2)}`;
   }
 
-  /**
+  /*
    * ============================================================
    * VALIDATION HEURE PERSONNALISÉE
    * ============================================================
    */
-  function isValidCustomTime(value: string): boolean {
-    if (!/^\d{2}:\d{2}$/.test(value)) {
+  function isValidCustomTime(
+    value: string
+  ): boolean {
+    if (
+      !/^\d{2}:\d{2}$/.test(value)
+    ) {
       return false;
     }
 
-    const [hours, minutes] = value.split(":").map(Number);
+    const [
+      hours,
+      minutes,
+    ] = value
+      .split(":")
+      .map(Number);
 
     if (
       !Number.isInteger(hours) ||
@@ -395,25 +470,30 @@ export default function BookingPage() {
     return true;
   }
 
-  /**
+  /*
    * ============================================================
    * CHOIX CRÉNEAU
    * ============================================================
    */
-  function handleSlotSelect(selectedTime: string) {
+  function handleSlotSelect(
+    selectedTime: string
+  ) {
     setUseCustomTime(false);
     setCustomTime("");
     setTime(selectedTime);
     setFormError(null);
   }
 
-  /**
+  /*
    * ============================================================
    * CHOIX HEURE PERSONNALISÉE
    * ============================================================
    */
-  function handleCustomTimeChange(value: string) {
-    const normalized = normalizeTime(value);
+  function handleCustomTimeChange(
+    value: string
+  ) {
+    const normalized =
+      normalizeTime(value);
 
     setCustomTime(normalized);
     setTime(null);
@@ -421,7 +501,7 @@ export default function BookingPage() {
     setFormError(null);
   }
 
-  /**
+  /*
    * ============================================================
    * CRÉATION RÉSERVATION
    * ============================================================
@@ -453,46 +533,52 @@ export default function BookingPage() {
       useCustomTime &&
       !isValidCustomTime(customTime)
     ) {
-      setFormError(t.invalidCustomTime);
+      setFormError(
+        t.invalidCustomTime
+      );
       return;
     }
 
     setSubmitting(true);
 
     try {
-      const result = await createBooking({
-        staffId: staff.id,
-        serviceId: service.id,
-        date,
-        time: effectiveTime,
-        clientName: clientName.trim(),
-        clientPhone: clientPhone.trim(),
-      });
+      const result =
+        await createBooking({
+          staffId: staff.id,
+          serviceId: service.id,
+          date,
+          time: effectiveTime,
+          clientName:
+            clientName.trim(),
+          clientPhone:
+            clientPhone.trim(),
+        });
 
       setConfirmation(result);
     } catch (error) {
       if (
         error instanceof ApiRequestError &&
-        error.code === "SLOT_UNAVAILABLE"
+        error.code ===
+          "SLOT_UNAVAILABLE"
       ) {
         setFormError(t.slotTaken);
 
         setTime(null);
 
-        if (useCustomTime) {
-          setUseCustomTime(true);
-        }
-
-        if (service && staff && date) {
-          getAvailability(staff.id, service.id, date)
+        if (
+          service &&
+          staff &&
+          date
+        ) {
+          getAvailability(
+            staff.id,
+            service.id,
+            date
+          )
             .then((result) => {
               setSlots(result.slots);
             })
             .catch(() => {});
-        }
-
-        if (!useCustomTime) {
-          setTime(null);
         }
 
         return;
@@ -504,7 +590,7 @@ export default function BookingPage() {
     }
   }
 
-  /**
+  /*
    * ============================================================
    * NOUVELLE RÉSERVATION
    * ============================================================
@@ -515,11 +601,12 @@ export default function BookingPage() {
     setService(null);
     setStaff(null);
     setDate(null);
-
     setTime(null);
 
     setCustomTime("");
     setUseCustomTime(false);
+
+    setSlots([]);
 
     if (!client) {
       setClientName("");
@@ -539,7 +626,6 @@ export default function BookingPage() {
       ====================================================== */}
       <header className="sticky top-0 z-20 bg-ink-950/95 backdrop-blur border-b border-ink-800 px-4 py-3">
         <div className="max-w-md mx-auto flex items-center justify-between gap-3">
-          {/* Logo / Nom */}
           <Link
             to="/"
             className="font-semibold text-zinc-100 text-base whitespace-nowrap"
@@ -547,32 +633,21 @@ export default function BookingPage() {
             {t.brand}
           </Link>
 
-          {/* Actions */}
           <div className="flex items-center gap-2">
             {client ? (
-              /*
-               * CLIENT DÉJÀ CONNECTÉ
-               */
               <Link
                 to="/account"
                 className="inline-flex items-center gap-1.5 rounded-xl border border-gold-500/50 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-400 transition-colors hover:bg-gold-500/20 hover:text-gold-300"
               >
                 <span>👤</span>
-                <span>{t.myAccount}</span>
+                <span>
+                  {t.myAccount}
+                </span>
               </Link>
             ) : (
-              /*
-               * PAS CONNECTÉ
-               *
-               * Ce bouton permet :
-               * - Connexion
-               * - Création de compte
-               *
-               * La réservation reste possible sans compte.
-               */
               <Link
                 to="/auth"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-gold-500/50 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-400 transition-colors hover:bg-gold-500/20 hover:bg-gold-500/20 hover:text-gold-300"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gold-500/50 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-400 transition-colors hover:bg-gold-500/20 hover:text-gold-300"
               >
                 <span>👤</span>
                 <span>{t.login}</span>
@@ -588,33 +663,38 @@ export default function BookingPage() {
           MAIN
       ====================================================== */}
       <main className="flex-1 px-4 py-5 max-w-md mx-auto w-full">
+
         {/* =====================================================
             MESSAGE COMPTE CLIENT
         ====================================================== */}
-        {!client && step === "service" && (
-          <div className="mb-5 rounded-xl border border-gold-500/20 bg-gold-500/5 px-4 py-3">
-            <div className="flex items-start gap-3">
-              <div className="text-lg">👤</div>
+        {!client &&
+          step === "service" && (
+            <div className="mb-5 rounded-xl border border-gold-500/20 bg-gold-500/5 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <div className="text-lg">
+                  👤
+                </div>
 
-              <div className="flex-1">
-                <p className="text-sm font-medium text-zinc-200">
-                  {t.clientAccount}
-                </p>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-zinc-200">
+                    {t.clientAccount}
+                  </p>
 
-                <p className="text-xs text-zinc-500 mt-1">
-                  {t.clientAccountHint}
-                </p>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {t.clientAccountHint}
+                  </p>
 
-                <Link
-                  to="/auth"
-                  className="inline-block mt-2 text-xs font-medium text-gold-400 hover:text-gold-300 underline underline-offset-2"
-                >
-                  {t.login} / {t.createAccount}
-                </Link>
+                  <Link
+                    to="/auth"
+                    className="inline-block mt-2 text-xs font-medium text-gold-400 hover:text-gold-300 underline underline-offset-2"
+                  >
+                    {t.login} /{" "}
+                    {t.createAccount}
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* =====================================================
             PROGRESSION
@@ -627,11 +707,15 @@ export default function BookingPage() {
 
             <div className="flex items-center gap-1.5 mb-6">
               {stepOrder.map(
-                (currentStep, index) => (
+                (
+                  currentStep,
+                  index
+                ) => (
                   <div
                     key={currentStep}
                     className={`h-1.5 flex-1 rounded-full transition-colors ${
-                      index <= currentIndex
+                      index <=
+                      currentIndex
                         ? "bg-gold-500"
                         : "bg-ink-800"
                     }`}
@@ -648,12 +732,14 @@ export default function BookingPage() {
         {loadingCatalog &&
           step !== "confirmed" && (
             <div className="space-y-3">
-              {[1, 2, 3].map((item) => (
-                <div
-                  key={item}
-                  className="h-16 rounded-xl bg-ink-800 animate-pulse"
-                />
-              ))}
+              {[1, 2, 3].map(
+                (item) => (
+                  <div
+                    key={item}
+                    className="h-16 rounded-xl bg-ink-800 animate-pulse"
+                  />
+                )
+              )}
             </div>
           )}
 
@@ -669,7 +755,9 @@ export default function BookingPage() {
 
               <ServiceSelector
                 services={services}
-                selectedId={service?.id ?? null}
+                selectedId={
+                  service?.id ?? null
+                }
                 onSelect={setService}
               />
             </section>
@@ -683,13 +771,17 @@ export default function BookingPage() {
             <section className="animate-fade-in-up">
               <BackBar
                 label={t.step2Title}
-                onBack={() => resetFrom("service")}
+                onBack={() =>
+                  resetFrom("service")
+                }
                 backLabel={t.back}
               />
 
               <StaffSelector
                 staff={staffList}
-                selectedId={staff?.id ?? null}
+                selectedId={
+                  staff?.id ?? null
+                }
                 onSelect={setStaff}
               />
             </section>
@@ -702,7 +794,9 @@ export default function BookingPage() {
           <section className="animate-fade-in-up">
             <BackBar
               label={t.step3Title}
-              onBack={() => resetFrom("staff")}
+              onBack={() =>
+                resetFrom("staff")
+              }
               backLabel={t.back}
             />
 
@@ -723,7 +817,9 @@ export default function BookingPage() {
             <section className="animate-fade-in-up">
               <BackBar
                 label={t.step4Title}
-                onBack={() => resetFrom("date")}
+                onBack={() =>
+                  resetFrom("date")
+                }
                 backLabel={t.back}
               />
 
@@ -732,13 +828,25 @@ export default function BookingPage() {
                   <TimeSlotGrid
                     slots={slots}
                     selected={
-                      useCustomTime ? null : time
+                      useCustomTime
+                        ? null
+                        : time
                     }
-                    onSelect={handleSlotSelect}
-                    loading={loadingSlots}
-                    emptyMessage={t.noSlot}
-                    availableLabel={t.slotAvailable}
-                    bookedLabel={t.slotBooked}
+                    onSelect={
+                      handleSlotSelect
+                    }
+                    loading={
+                      loadingSlots
+                    }
+                    emptyMessage={
+                      t.noSlot
+                    }
+                    availableLabel={
+                      t.slotAvailable
+                    }
+                    bookedLabel={
+                      t.slotBooked
+                    }
                     exceptionalLabel={
                       t.exceptionalSlot
                     }
@@ -749,11 +857,15 @@ export default function BookingPage() {
                     slots.length > 0 && (
                       <div className="flex items-center gap-4 mt-3 text-xs text-zinc-400 flex-wrap">
                         <span className="flex items-center gap-1">
-                          🟢 {t.slotAvailable}
+                          🟢{" "}
+                          {
+                            t.slotAvailable
+                          }
                         </span>
 
                         <span className="flex items-center gap-1">
-                          🔴 {t.slotBooked}
+                          🔴{" "}
+                          {t.slotBooked}
                         </span>
                       </div>
                     )}
@@ -762,8 +874,6 @@ export default function BookingPage() {
 
               {/* =================================================
                   HEURE PERSONNALISÉE
-                  (contrôle principal en mode "flexible" ;
-                  alternative optionnelle en mode "interval")
               ================================================== */}
               <div
                 className={
@@ -811,7 +921,9 @@ export default function BookingPage() {
                         return;
                       }
 
-                      setUseCustomTime(true);
+                      setUseCustomTime(
+                        true
+                      );
                       setTime(null);
                       setFormError(null);
                     }}
@@ -828,7 +940,9 @@ export default function BookingPage() {
                         : "border-ink-800 bg-ink-900 text-zinc-600 cursor-not-allowed"
                     }`}
                   >
-                    {t.useCustomTimeButton}
+                    {
+                      t.useCustomTimeButton
+                    }
                   </button>
                 </div>
 
@@ -836,7 +950,9 @@ export default function BookingPage() {
                   customTime && (
                     <div className="mt-3 rounded-xl border border-gold-500/40 bg-gold-500/10 px-3 py-2">
                       <p className="text-sm text-gold-400">
-                        {t.customTimeSelectedLabel}
+                        {
+                          t.customTimeSelectedLabel
+                        }
 
                         <span className="font-semibold ml-1">
                           {customTime}
@@ -846,10 +962,16 @@ export default function BookingPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setUseCustomTime(false);
-                          setCustomTime("");
+                          setUseCustomTime(
+                            false
+                          );
+                          setCustomTime(
+                            ""
+                          );
                           setTime(null);
-                          setFormError(null);
+                          setFormError(
+                            null
+                          );
                         }}
                         className="text-xs text-zinc-400 hover:text-zinc-200 mt-1 underline"
                       >
@@ -862,21 +984,28 @@ export default function BookingPage() {
 
                 {formError &&
                   !time &&
-                  useCustomTime === true && (
+                  useCustomTime ===
+                    true && (
                     <p className="text-red-400 text-sm mt-3">
                       {formError}
                     </p>
                   )}
               </div>
 
-              {/* Durée */}
+              {/* =================================================
+                  DURÉE
+              ================================================== */}
               <div className="mt-4 rounded-xl bg-ink-900 border border-ink-800 px-3 py-3">
                 <p className="text-xs text-zinc-500">
-                  {t.serviceDurationLabel}
+                  {
+                    t.serviceDurationLabel
+                  }
                 </p>
 
                 <p className="text-sm text-zinc-200 mt-1">
-                  {service.duration_minutes}{" "}
+                  {
+                    service.duration_minutes
+                  }{" "}
                   {t.minutesShort}
                 </p>
               </div>
@@ -894,7 +1023,9 @@ export default function BookingPage() {
             <section className="animate-fade-in-up">
               <BackBar
                 label={t.step5Title}
-                onBack={() => resetFrom("slot")}
+                onBack={() =>
+                  resetFrom("slot")
+                }
                 backLabel={t.back}
               />
 
@@ -916,7 +1047,9 @@ export default function BookingPage() {
 
                 <SummaryLine
                   label={t.date}
-                  value={dayjs(date).format(
+                  value={dayjs(
+                    date
+                  ).format(
                     "dddd D MMMM"
                   )}
                 />
@@ -1003,8 +1136,12 @@ export default function BookingPage() {
         {step === "confirmed" &&
           confirmation && (
             <ConfirmationView
-              confirmation={confirmation}
-              onNewBooking={startOver}
+              confirmation={
+                confirmation
+              }
+              onNewBooking={
+                startOver
+              }
             />
           )}
       </main>
@@ -1114,7 +1251,8 @@ function ConfirmationView({
   confirmation: BookingConfirmation;
   onNewBooking: () => void;
 }) {
-  const { t, lang } = useLanguage();
+  const { t, lang } =
+    useLanguage();
 
   const {
     appointment,
@@ -1161,12 +1299,16 @@ function ConfirmationView({
           label={t.date}
           value={dayjs(
             appointment.date
-          ).format("dddd D MMMM")}
+          ).format(
+            "dddd D MMMM"
+          )}
         />
 
         <SummaryLine
           label={t.time}
-          value={appointment.start_time}
+          value={
+            appointment.start_time
+          }
         />
 
         <SummaryLine
