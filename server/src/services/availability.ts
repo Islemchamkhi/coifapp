@@ -11,8 +11,6 @@ import {
   todayInSalonTz,
 } from "../lib/time.js";
 
-import { getBookingSettings } from "./bookingSettings.js";
-
 export interface BusySlot {
   start: number;
   end: number;
@@ -25,56 +23,39 @@ export interface BusySlot {
  *
  * LUNDI -> VENDREDI
  *
- * 09:00 -> 21:00 : réservation normale
+ * 08:00 -> 20:00 : réservation normale
+ * 20:00 -> 21:00 : demande exceptionnelle
  *
  * SAMEDI -> DIMANCHE
  *
- * 09:00 -> 22:00 : réservation normale
+ * 08:00 -> 22:00 : réservation normale
  *
- * IMPORTANT :
- *
- * La disponibilité dépend de la FIN RÉELLE du service.
- *
- * Exemple semaine :
- *
- * 19:30 + 90 min = 21:00
- * => AUTORISÉ
- *
- * 19:31 + 90 min = 21:01
- * => REFUSÉ
- *
- * 20:30 + 90 min = 22:00
- * => REFUSÉ
- *
- * Exemple weekend :
- *
- * 20:30 + 90 min = 22:00
- * => AUTORISÉ
- *
- * 20:31 + 90 min = 22:01
- * => REFUSÉ
- *
- * Le service doit TOUJOURS être complètement terminé
- * avant ou exactement à l'heure de fermeture.
+ * La totalité du service doit être comprise
+ * dans une seule fenêtre.
  */
 
 interface BookingWindow {
   start: number;
   end: number;
-  type: "normal";
+  type: "normal" | "request";
 }
 
-function getBookingWindows(date: string): BookingWindow[] {
-  const dateObject = new Date(`${date}T12:00:00`);
+function getBookingWindows(
+  date: string
+): BookingWindow[] {
+  const dateObject =
+    new Date(`${date}T12:00:00`);
 
-  const day = dateObject.getDay();
+  const day =
+    dateObject.getDay();
 
-  const isWeekend = day === 0 || day === 6;
+  const isWeekend =
+    day === 0 || day === 6;
 
   if (isWeekend) {
     return [
       {
-        start: toMinutes("09:00"),
+        start: toMinutes("08:00"),
         end: toMinutes("22:00"),
         type: "normal",
       },
@@ -83,9 +64,14 @@ function getBookingWindows(date: string): BookingWindow[] {
 
   return [
     {
-      start: toMinutes("09:00"),
-      end: toMinutes("21:00"),
+      start: toMinutes("08:00"),
+      end: toMinutes("20:00"),
       type: "normal",
+    },
+    {
+      start: toMinutes("20:00"),
+      end: toMinutes("21:00"),
+      type: "request",
     },
   ];
 }
@@ -143,8 +129,12 @@ export function getBusySlotsForStaffDate(
 
   return rows
     .map((row) => ({
-      start: toMinutes(row.start_time),
-      end: toMinutes(row.end_time),
+      start: toMinutes(
+        row.start_time
+      ),
+      end: toMinutes(
+        row.end_time
+      ),
     }))
     .filter(
       (slot) =>
@@ -156,40 +146,27 @@ export function getBusySlotsForStaffDate(
 
 /**
  * ============================================================
- * UTILITAIRES DE BASE — DURÉE / CHEVAUCHEMENT
+ * PAS DES CRÉNEAUX
  * ============================================================
+ *
+ * Toujours 5 minutes.
+ *
+ * Exemple :
+ *
+ * 09:00
+ * 09:05
+ * 09:10
+ * 09:15
+ * ...
+ *
+ * Cela permet de proposer la première heure réellement
+ * disponible après la fin d'une réservation.
  */
 
-export function calculateReservationEnd(
-  start: number,
-  durationMinutes: number
+function getSlotStepMinutes(
+  _durationMinutes: number
 ): number {
-  return start + durationMinutes;
-}
-
-export function hasTimeOverlap(
-  aStart: number,
-  aEnd: number,
-  bStart: number,
-  bEnd: number
-): boolean {
-  return overlaps(aStart, aEnd, bStart, bEnd);
-}
-
-/**
- * ============================================================
- * PAS DE LA GRILLE
- * ============================================================
- *
- * Configurable par salon via booking_settings.
- *
- * Ce pas sert uniquement à générer les créneaux affichés.
- * Il ne change PAS la validation réelle côté serveur.
- */
-
-function getSlotStepMinutes(): number {
-  const settings = getBookingSettings();
-  return settings.bookingIntervalMinutes;
+  return 5;
 }
 
 /**
@@ -216,12 +193,6 @@ function getWindowForSlot(
  * ============================================================
  * DEMANDE EXCEPTIONNELLE
  * ============================================================
- *
- * Il n'y a plus de plage exceptionnelle permettant
- * de dépasser l'heure maximale de fermeture.
- *
- * La fonction est conservée pour compatibilité avec
- * le reste de l'application.
  */
 
 export function isExceptionalSlot(
@@ -229,7 +200,38 @@ export function isExceptionalSlot(
   startTime: string,
   durationMinutes: number
 ): boolean {
-  return false;
+  if (isClosedDay(date)) {
+    return false;
+  }
+
+  if (
+    !Number.isFinite(
+      durationMinutes
+    ) ||
+    durationMinutes <= 0
+  ) {
+    return false;
+  }
+
+  const start =
+    toMinutes(startTime);
+
+  const end =
+    start + durationMinutes;
+
+  const windows =
+    getBookingWindows(date);
+
+  const window =
+    getWindowForSlot(
+      windows,
+      start,
+      end
+    );
+
+  return (
+    window?.type === "request"
+  );
 }
 
 /**
@@ -237,14 +239,47 @@ export function isExceptionalSlot(
  * VÉRIFICATION DE CHEVAUCHEMENT
  * ============================================================
  *
+ * C'est LA règle principale.
+ *
+ * Nouveau rendez-vous :
+ *
+ *     [newStart, newEnd]
+ *
+ * Rendez-vous existant :
+ *
+ *     [busyStart, busyEnd]
+ *
  * Il y a conflit uniquement si :
  *
- * newStart < busyEnd
- * ET
- * newEnd > busyStart
+ *     newStart < busyEnd
+ *     &&
+ *     newEnd > busyStart
  *
- * Deux rendez-vous qui se touchent exactement
- * restent autorisés.
+ * Donc :
+ *
+ * 20:00 -> 20:20
+ * contre
+ * 20:40 -> 21:00
+ *
+ * => PAS de conflit
+ *
+ * 20:20 -> 20:40
+ * contre
+ * 20:40 -> 21:00
+ *
+ * => PAS de conflit
+ *
+ * 20:25 -> 20:45
+ * contre
+ * 20:40 -> 21:00
+ *
+ * => CONFLIT
+ *
+ * 20:40 -> 21:00
+ * contre
+ * 20:40 -> 21:00
+ *
+ * => CONFLIT
  */
 
 export function hasConflict(
@@ -252,278 +287,39 @@ export function hasConflict(
   end: number,
   busySlots: BusySlot[]
 ): boolean {
-  return busySlots.some((busySlot) =>
-    hasTimeOverlap(
-      start,
-      end,
-      busySlot.start,
-      busySlot.end
-    )
+  return busySlots.some(
+    (busySlot) =>
+      start < busySlot.end &&
+      end > busySlot.start
   );
 }
 
 /**
  * ============================================================
- * VALIDATION D'UNE HEURE DE DÉBUT
+ * CALCUL DES CRÉNEAUX DISPONIBLES
  * ============================================================
- *
- * RÈGLE PRINCIPALE :
- *
- * start + durée <= fermeture
- *
- * La durée complète du service doit être terminée
- * avant ou exactement à l'heure de fermeture.
  */
 
-export interface BookingTimeValidation {
-  valid: boolean;
-  start: number;
-  end: number;
-  window: BookingWindow | null;
-  reason?:
-    | "CLOSED_DAY"
-    | "INVALID_DURATION"
-    | "INVALID_TIME_FORMAT"
-    | "INVALID_TIME_RANGE"
-    | "PAST_DATE"
-    | "OUTSIDE_OPENING_HOURS"
-    | "TOO_SOON";
-}
-
-export function validateBookingTime(
+export function computeAvailableSlots(
+  staffId: number,
   date: string,
-  startTime: string,
   durationMinutes: number
-): BookingTimeValidation {
-  if (isClosedDay(date)) {
-    return {
-      valid: false,
-      start: -1,
-      end: -1,
-      window: null,
-      reason: "CLOSED_DAY",
-    };
-  }
-
-  if (
-    !Number.isFinite(durationMinutes) ||
-    durationMinutes <= 0
-  ) {
-    return {
-      valid: false,
-      start: -1,
-      end: -1,
-      window: null,
-      reason: "INVALID_DURATION",
-    };
-  }
-
-  if (!/^\d{2}:\d{2}$/.test(startTime)) {
-    return {
-      valid: false,
-      start: -1,
-      end: -1,
-      window: null,
-      reason: "INVALID_TIME_FORMAT",
-    };
-  }
-
-  const start = toMinutes(startTime);
-
-  if (
-    !Number.isFinite(start) ||
-    start < 0 ||
-    start >= 24 * 60
-  ) {
-    return {
-      valid: false,
-      start: -1,
-      end: -1,
-      window: null,
-      reason: "INVALID_TIME_RANGE",
-    };
-  }
-
-  const end = calculateReservationEnd(
-    start,
-    durationMinutes
-  );
-
-  const today = todayInSalonTz();
-
-  if (date < today) {
-    return {
-      valid: false,
-      start,
-      end,
-      window: null,
-      reason: "PAST_DATE",
-    };
-  }
-
-  /**
-   * ========================================================
-   * RÈGLE FONDAMENTALE
-   * ========================================================
-   *
-   * Le service ENTIER doit tenir dans les horaires.
-   *
-   * SEMAINE :
-   * fermeture = 21:00
-   *
-   * WEEKEND :
-   * fermeture = 22:00
-   *
-   * Exemple semaine :
-   *
-   * 20:30 + 90 = 22:00
-   * => REFUSÉ
-   *
-   * 19:30 + 90 = 21:00
-   * => ACCEPTÉ
-   */
-
-  const windows = getBookingWindows(date);
-
-  const window = getWindowForSlot(
-    windows,
-    start,
-    end
-  );
-
-  if (!window) {
-    return {
-      valid: false,
-      start,
-      end,
-      window: null,
-      reason: "OUTSIDE_OPENING_HOURS",
-    };
-  }
-
-  /**
-   * Vérification du délai minimum pour aujourd'hui.
-   */
-
-  if (date === today) {
-    const now = nowInSalonTz();
-
-    const nowMinutes =
-      now.hour() * 60 + now.minute();
-
-    if (
-      start <
-      nowMinutes + BOOKING_MIN_LEAD_MINUTES
-    ) {
-      return {
-        valid: false,
-        start,
-        end,
-        window,
-        reason: "TOO_SOON",
-      };
-    }
-  }
-
-  return {
-    valid: true,
-    start,
-    end,
-    window,
-  };
-}
-
-/**
- * ============================================================
- * DISPONIBILITÉ D'UN CRÉNEAU PRÉCIS
- * ============================================================
- *
- * Source de vérité côté backend.
- */
-
-export function isSlotAvailable(
-  staffId: number,
-  date: string,
-  startTime: string,
-  durationMinutes: number,
-  excludeAppointmentId?: string
-): boolean {
-  const validation =
-    validateBookingTime(
-      date,
-      startTime,
-      durationMinutes
-    );
-
-  if (!validation.valid) {
-    return false;
-  }
-
-  const busy =
-    getBusySlotsForStaffDate(
-      staffId,
-      date,
-      excludeAppointmentId
-    );
-
-  return !hasConflict(
-    validation.start,
-    validation.end,
-    busy
-  );
-}
-
-/**
- * Alias conservé pour compatibilité.
- */
-
-export function isSlotStillAvailable(
-  staffId: number,
-  date: string,
-  startTime: string,
-  durationMinutes: number
-): boolean {
-  return isSlotAvailable(
-    staffId,
-    date,
-    startTime,
-    durationMinutes
-  );
-}
-
-/**
- * ============================================================
- * GÉNÉRATION DES CRÉNEAUX
- * ============================================================
- *
- * Le dernier créneau possible dépend de la durée.
- *
- * Exemple :
- *
- * fermeture 21:00
- * service 90 min
- *
- * dernier début possible = 19:30
- */
-
-export function generateAvailableSlots(
-  staffId: number,
-  date: string,
-  durationMinutes: number,
-  stepMinutes: number = getSlotStepMinutes()
 ): string[] {
   if (isClosedDay(date)) {
     return [];
   }
 
   if (
-    !Number.isFinite(durationMinutes) ||
+    !Number.isFinite(
+      durationMinutes
+    ) ||
     durationMinutes <= 0
   ) {
     return [];
   }
 
-  const today = todayInSalonTz();
+  const today =
+    todayInSalonTz();
 
   if (date < today) {
     return [];
@@ -535,17 +331,26 @@ export function generateAvailableSlots(
       date
     );
 
-  const isToday = date === today;
+  const isToday =
+    date === today;
 
-  const now = nowInSalonTz();
+  const now =
+    nowInSalonTz();
 
   const nowMinutes =
-    now.hour() * 60 + now.minute();
+    now.hour() * 60 +
+    now.minute();
 
   const minimumStart =
-    nowMinutes + BOOKING_MIN_LEAD_MINUTES;
+    nowMinutes +
+    BOOKING_MIN_LEAD_MINUTES;
 
   const slots: string[] = [];
+
+  const step =
+    getSlotStepMinutes(
+      durationMinutes
+    );
 
   const windows =
     getBookingWindows(date);
@@ -553,9 +358,14 @@ export function generateAvailableSlots(
   for (const window of windows) {
     for (
       let start = window.start;
-      start + durationMinutes <= window.end;
-      start += stepMinutes
+      start + durationMinutes <=
+        window.end;
+      start += step
     ) {
+      /**
+       * Réservation dans le passé
+       * ou trop proche.
+       */
       if (
         isToday &&
         start < minimumStart
@@ -564,21 +374,25 @@ export function generateAvailableSlots(
       }
 
       const end =
-        calculateReservationEnd(
-          start,
-          durationMinutes
-        );
+        start + durationMinutes;
 
       /**
-       * Sécurité supplémentaire :
-       * aucune réservation ne peut dépasser
-       * la fermeture.
+       * Le service doit être entièrement
+       * contenu dans la fenêtre.
        */
-
-      if (end > window.end) {
+      if (
+        end > window.end
+      ) {
         continue;
       }
 
+      /**
+       * VRAIE vérification de conflit.
+       *
+       * On ne bloque PAS les heures avant
+       * une réservation simplement parce qu'elles
+       * sont proches.
+       */
       if (
         hasConflict(
           start,
@@ -596,22 +410,6 @@ export function generateAvailableSlots(
   }
 
   return slots;
-}
-
-/**
- * Alias conservé pour compatibilité.
- */
-
-export function computeAvailableSlots(
-  staffId: number,
-  date: string,
-  durationMinutes: number
-): string[] {
-  return generateAvailableSlots(
-    staffId,
-    date,
-    durationMinutes
-  );
 }
 
 /**
@@ -636,31 +434,39 @@ export interface SlotWithStatus {
  * CALCUL DE TOUS LES CRÉNEAUX AVEC STATUT
  * ============================================================
  *
- * Il n'y a plus de créneau "request" basé sur une heure
- * dépassant la fermeture.
+ * Cette fonction est utilisée lorsque le frontend doit
+ * afficher également les créneaux déjà occupés.
  *
- * Tous les créneaux valides sont "available".
- * Les créneaux occupés sont "booked".
+ * IMPORTANT :
+ *
+ * booked = vrai chevauchement
+ *
+ * request = créneau libre mais situé dans la période
+ *           exceptionnelle 20:00 -> 21:00
+ *
+ * available = créneau libre dans les horaires normaux.
  */
 
 export function computeSlotsWithStatus(
   staffId: number,
   date: string,
-  durationMinutes: number,
-  stepMinutes: number = getSlotStepMinutes()
+  durationMinutes: number
 ): SlotWithStatus[] {
   if (isClosedDay(date)) {
     return [];
   }
 
   if (
-    !Number.isFinite(durationMinutes) ||
+    !Number.isFinite(
+      durationMinutes
+    ) ||
     durationMinutes <= 0
   ) {
     return [];
   }
 
-  const today = todayInSalonTz();
+  const today =
+    todayInSalonTz();
 
   if (date < today) {
     return [];
@@ -672,17 +478,27 @@ export function computeSlotsWithStatus(
       date
     );
 
-  const isToday = date === today;
+  const isToday =
+    date === today;
 
-  const now = nowInSalonTz();
+  const now =
+    nowInSalonTz();
 
   const nowMinutes =
-    now.hour() * 60 + now.minute();
+    now.hour() * 60 +
+    now.minute();
 
   const minimumStart =
-    nowMinutes + BOOKING_MIN_LEAD_MINUTES;
+    nowMinutes +
+    BOOKING_MIN_LEAD_MINUTES;
 
-  const result: SlotWithStatus[] = [];
+  const result: SlotWithStatus[] =
+    [];
+
+  const step =
+    getSlotStepMinutes(
+      durationMinutes
+    );
 
   const windows =
     getBookingWindows(date);
@@ -690,9 +506,15 @@ export function computeSlotsWithStatus(
   for (const window of windows) {
     for (
       let start = window.start;
-      start + durationMinutes <= window.end;
-      start += stepMinutes
+      start + durationMinutes <=
+        window.end;
+      start += step
     ) {
+      /**
+       * Aujourd'hui :
+       * ne pas afficher les heures déjà passées
+       * ou trop proches.
+       */
       if (
         isToday &&
         start < minimumStart
@@ -701,15 +523,21 @@ export function computeSlotsWithStatus(
       }
 
       const end =
-        calculateReservationEnd(
-          start,
-          durationMinutes
-        );
+        start + durationMinutes;
 
-      if (end > window.end) {
+      /**
+       * Le service doit tenir entièrement
+       * dans la fenêtre.
+       */
+      if (
+        end > window.end
+      ) {
         continue;
       }
 
+      /**
+       * Vérification du chevauchement réel.
+       */
       const conflict =
         hasConflict(
           start,
@@ -717,25 +545,165 @@ export function computeSlotsWithStatus(
           busy
         );
 
+      /**
+       * CONFLIT
+       */
       if (conflict) {
         result.push({
           time: toHHMM(start),
           status: "booked",
-          isExceptional: false,
+          isExceptional:
+            window.type ===
+            "request",
         });
 
         continue;
       }
 
+      /**
+       * LIBRE
+       *
+       * Si la plage est exceptionnelle,
+       * elle reste "request" et non "booked".
+       */
       result.push({
         time: toHHMM(start),
-        status: "available",
-        isExceptional: false,
+        status:
+          window.type ===
+          "request"
+            ? "request"
+            : "available",
+        isExceptional:
+          window.type ===
+          "request",
       });
     }
   }
 
   return result;
+}
+
+/**
+ * ============================================================
+ * VALIDATION BACKEND
+ * ============================================================
+ *
+ * Cette fonction doit obligatoirement être appelée
+ * au moment de créer une réservation.
+ *
+ * Le frontend ne suffit jamais pour garantir
+ * la disponibilité.
+ */
+
+export function isSlotStillAvailable(
+  staffId: number,
+  date: string,
+  startTime: string,
+  durationMinutes: number
+): boolean {
+  if (isClosedDay(date)) {
+    return false;
+  }
+
+  if (
+    !Number.isFinite(
+      durationMinutes
+    ) ||
+    durationMinutes <= 0
+  ) {
+    return false;
+  }
+
+  /**
+   * Validation du format.
+   */
+  if (
+    !/^\d{2}:\d{2}$/.test(
+      startTime
+    )
+  ) {
+    return false;
+  }
+
+  const start =
+    toMinutes(startTime);
+
+  if (
+    !Number.isFinite(start) ||
+    start < 0 ||
+    start >= 24 * 60
+  ) {
+    return false;
+  }
+
+  const end =
+    start + durationMinutes;
+
+  const today =
+    todayInSalonTz();
+
+  if (date < today) {
+    return false;
+  }
+
+  /**
+   * Vérifier que le service tient entièrement
+   * dans une fenêtre autorisée.
+   */
+  const windows =
+    getBookingWindows(date);
+
+  const window =
+    getWindowForSlot(
+      windows,
+      start,
+      end
+    );
+
+  if (!window) {
+    return false;
+  }
+
+  /**
+   * Pour aujourd'hui :
+   * empêcher une réservation passée
+   * ou trop proche.
+   */
+  if (date === today) {
+    const now =
+      nowInSalonTz();
+
+    const nowMinutes =
+      now.hour() * 60 +
+      now.minute();
+
+    if (
+      start <
+      nowMinutes +
+        BOOKING_MIN_LEAD_MINUTES
+    ) {
+      return false;
+    }
+  }
+
+  /**
+   * Vérification finale contre TOUS
+   * les rendez-vous occupés du coiffeur.
+   */
+  const busy =
+    getBusySlotsForStaffDate(
+      staffId,
+      date
+    );
+
+  /**
+   * Aucun chevauchement autorisé.
+   */
+  return !hasConflict(
+    start,
+    end,
+    busy
+  );
 }
 
 /**
@@ -749,22 +717,25 @@ export function countClientsBefore(
   date: string,
   startTime: string
 ): number {
-  const row = db
-    .prepare(
-      `
-      SELECT COUNT(*) AS c
-      FROM appointments
-      WHERE staff_id = ?
-        AND date = ?
-        AND status = 'confirmed'
-        AND start_time < ?
-      `
-    )
-    .get(
-      staffId,
-      date,
-      startTime
-    ) as { c: number };
+  const row =
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c
+        FROM appointments
+        WHERE staff_id = ?
+          AND date = ?
+          AND status = 'confirmed'
+          AND start_time < ?
+        `
+      )
+      .get(
+        staffId,
+        date,
+        startTime
+      ) as {
+      c: number;
+    };
 
   return row.c;
 }

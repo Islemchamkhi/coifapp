@@ -128,6 +128,13 @@ export const translations = {
     bookingIntervalLabel: "Espacement entre les créneaux",
     saveSettings: "Enregistrer",
     settingsSaved: "Paramètres enregistrés.",
+    editAppointmentTitle: "Modifier la réservation",
+    cancelAppointmentConfirmTitle: "Annuler la réservation ?",
+    cancelAppointmentConfirmMessage:
+      "Cette action annulera votre réservation. Voulez-vous continuer ?",
+    confirmCancelAction: "Oui, annuler",
+    keepAppointment: "Non, garder",
+    appointmentUpdated: "Réservation modifiée avec succès.",
   },
   ar: {
     dir: "rtl",
@@ -255,6 +262,13 @@ export const translations = {
     bookingIntervalLabel: "الفاصل الزمني بين المواعيد",
     saveSettings: "حفظ",
     settingsSaved: "تم حفظ الإعدادات.",
+    editAppointmentTitle: "تعديل الموعد",
+    cancelAppointmentConfirmTitle: "إلغاء الموعد؟",
+    cancelAppointmentConfirmMessage:
+      "سيؤدي هذا الإجراء إلى إلغاء موعدك. هل تريد المتابعة؟",
+    confirmCancelAction: "نعم، إلغاء",
+    keepAppointment: "لا، الاحتفاظ به",
+    appointmentUpdated: "تم تعديل الموعد بنجاح.",
   },
 } as const;
 

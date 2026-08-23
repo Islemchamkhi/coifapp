@@ -1,11 +1,23 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { v4 as uuidv4 } from "uuid";
 import { db } from "../db.js";
 import {
   requireClient,
   signClientToken,
   ClientAuthedRequest,
 } from "../middleware/clientAuth.js";
+import { Appointment, ServiceRow, Staff } from "../types.js";
+import { isValidDateStr, toHHMM } from "../lib/time.js";
+import {
+  validateBookingTime,
+  getBusySlotsForStaffDate,
+  hasConflict,
+  isExceptionalSlot,
+  computeSlotsWithStatus,
+} from "../services/availability.js";
+import { BookingError } from "../services/booking.js";
 
 const router = Router();
 
@@ -25,6 +37,81 @@ function normalizeEmail(value: unknown): string {
 
 function normalizeName(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+/**
+ * ============================================================
+ * HEURE DE FERMETURE (pour messages d'erreur)
+ * ============================================================
+ *
+ * Lundi -> Vendredi : fermeture à 21:00
+ * Samedi -> Dimanche : fermeture à 22:00
+ *
+ * Ne duplique pas la logique de calcul des créneaux (elle
+ * reste entièrement dans availability.ts) : sert uniquement
+ * à afficher la bonne heure dans le message d'erreur.
+ */
+function closingTimeLabel(date: string): string {
+  const day = new Date(`${date}T12:00:00`).getDay();
+  const isWeekend = day === 0 || day === 6;
+  return isWeekend ? "22:00" : "21:00";
+}
+
+/**
+ * ============================================================
+ * TRADUCTION DES ERREURS DE VALIDATION (validateBookingTime)
+ * ============================================================
+ *
+ * Réutilise EXACTEMENT la même fonction de validation que le
+ * reste du système (réservation invité, disponibilité,
+ * modification admin) — voir services/availability.ts.
+ */
+function validationErrorResponse(
+  reason: string | undefined,
+  date: string
+): { status: number; error: string; message: string } {
+  switch (reason) {
+    case "CLOSED_DAY":
+      return {
+        status: 400,
+        error: "CLOSED_DAY",
+        message: "Le salon est fermé ce jour-là.",
+      };
+    case "PAST_DATE":
+      return {
+        status: 400,
+        error: "PAST_DATE",
+        message:
+          "Impossible de modifier une réservation à une date déjà passée.",
+      };
+    case "TOO_SOON":
+      return {
+        status: 400,
+        error: "TOO_SOON",
+        message:
+          "Cet horaire est trop proche de l'heure actuelle. Merci de choisir un créneau plus tard.",
+      };
+    case "OUTSIDE_OPENING_HOURS":
+      return {
+        status: 400,
+        error: "OUTSIDE_OPENING_HOURS",
+        message: `Nous sommes désolés, ce service ne peut pas être réservé à cette heure car le salon ferme à ${closingTimeLabel(
+          date
+        )}.`,
+      };
+    case "INVALID_DURATION":
+      return {
+        status: 400,
+        error: "INVALID_SERVICE_DURATION",
+        message: "La durée du service est invalide.",
+      };
+    default:
+      return {
+        status: 400,
+        error: "INVALID_TIME",
+        message: "Heure invalide.",
+      };
+  }
 }
 
 function sanitizeClient(client: {
@@ -744,6 +831,717 @@ router.get(
 
 /**
  * ============================================================
+ * MY APPOINTMENT DETAIL
+ * ============================================================
+ *
+ * GET /api/client-auth/me/appointments/:id
+ *
+ * SÉCURITÉ :
+ * Le rendez-vous doit appartenir au client connecté
+ * (client_id = req.clientId). Aucun autre client ne peut
+ * consulter les détails d'une réservation qui n'est pas la
+ * sienne.
+ */
+router.get(
+  "/me/appointments/:id",
+  requireClient,
+  (req: ClientAuthedRequest, res) => {
+    try {
+      const clientId = req.clientId;
+
+      const appointmentId = String(
+        req.params.id ?? ""
+      ).trim();
+
+      if (!clientId) {
+        return res.status(401).json({
+          error: "UNAUTHORIZED",
+          message:
+            "Authentification client requise.",
+        });
+      }
+
+      if (!appointmentId) {
+        return res.status(400).json({
+          error: "INVALID_APPOINTMENT",
+          message:
+            "Réservation invalide.",
+        });
+      }
+
+      const appointment = db
+        .prepare(
+          `
+          SELECT
+            a.*,
+
+            s.name_fr AS service_name_fr,
+            s.name_ar AS service_name_ar,
+            s.duration_minutes,
+
+            st.name AS staff_name
+
+          FROM appointments a
+
+          LEFT JOIN services s
+            ON s.id = a.service_id
+
+          LEFT JOIN staff st
+            ON st.id = a.staff_id
+
+          WHERE a.id = ?
+            AND a.client_id = ?
+
+          LIMIT 1
+          `
+        )
+        .get(appointmentId, clientId);
+
+      if (!appointment) {
+        return res.status(404).json({
+          error: "APPOINTMENT_NOT_FOUND",
+          message:
+            "Réservation introuvable.",
+        });
+      }
+
+      return res.status(200).json({
+        appointment,
+      });
+    } catch (error) {
+      console.error(
+        "❌ Client appointment detail error:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "APPOINTMENT_FAILED",
+        message:
+          "Impossible de récupérer la réservation.",
+      });
+    }
+  }
+);
+
+/**
+ * ============================================================
+ * AVAILABILITY FOR MY APPOINTMENT (MODIFICATION)
+ * ============================================================
+ *
+ * GET /api/client-auth/me/appointments/:id/availability
+ *
+ * Identique à GET /api/availability (route publique), à un
+ * détail près : le créneau ACTUEL de la réservation en cours
+ * de modification est exclu du calcul d'occupation, pour
+ * qu'il n'apparaisse pas "réservé" simplement parce que le
+ * client l'occupe déjà lui-même.
+ *
+ * Ne crée pas de deuxième système de disponibilité :
+ * réutilise exactement computeSlotsWithStatus (services/availability.ts).
+ *
+ * SÉCURITÉ :
+ * Le rendez-vous doit appartenir au client connecté.
+ */
+
+const clientAvailabilityQuerySchema = z.object({
+  staffId: z
+    .coerce
+    .number()
+    .int()
+    .positive(),
+
+  serviceId: z
+    .coerce
+    .number()
+    .int()
+    .positive(),
+
+  date: z.string(),
+});
+
+router.get(
+  "/me/appointments/:id/availability",
+  requireClient,
+  (req: ClientAuthedRequest, res) => {
+    try {
+      const clientId = req.clientId;
+
+      const appointmentId = String(
+        req.params.id ?? ""
+      ).trim();
+
+      if (!clientId) {
+        return res.status(401).json({
+          error: "UNAUTHORIZED",
+          message:
+            "Authentification client requise.",
+        });
+      }
+
+      const existing = db
+        .prepare(
+          `
+          SELECT id
+          FROM appointments
+          WHERE id = ?
+            AND client_id = ?
+          LIMIT 1
+          `
+        )
+        .get(
+          appointmentId,
+          clientId
+        ) as { id: string } | undefined;
+
+      if (!existing) {
+        return res.status(404).json({
+          error: "APPOINTMENT_NOT_FOUND",
+          message:
+            "Réservation introuvable.",
+        });
+      }
+
+      const parsed =
+        clientAvailabilityQuerySchema.safeParse(
+          req.query
+        );
+
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "INVALID_QUERY",
+          message: "Paramètres invalides.",
+        });
+      }
+
+      const { staffId, serviceId, date } =
+        parsed.data;
+
+      if (!isValidDateStr(date)) {
+        return res.status(400).json({
+          error: "INVALID_DATE",
+          message: "Date invalide.",
+        });
+      }
+
+      const service = db
+        .prepare(
+          "SELECT * FROM services WHERE id = ? AND active = 1"
+        )
+        .get(serviceId) as
+        | ServiceRow
+        | undefined;
+
+      if (!service) {
+        return res.status(404).json({
+          error: "SERVICE_NOT_FOUND",
+          message: "Service introuvable.",
+        });
+      }
+
+      const staff = db
+        .prepare(
+          "SELECT * FROM staff WHERE id = ? AND active = 1"
+        )
+        .get(staffId) as Staff | undefined;
+
+      if (!staff) {
+        return res.status(404).json({
+          error: "STAFF_NOT_FOUND",
+          message: "Coiffeur introuvable.",
+        });
+      }
+
+      const slots = computeSlotsWithStatus(
+        staffId,
+        date,
+        service.duration_minutes,
+        undefined,
+        existing.id
+      );
+
+      return res.status(200).json({
+        date,
+        staffId,
+        serviceId,
+        durationMinutes:
+          service.duration_minutes,
+        slots,
+      });
+    } catch (error) {
+      console.error(
+        "❌ Client appointment availability error:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "AVAILABILITY_FAILED",
+        message:
+          "Impossible de récupérer les disponibilités.",
+      });
+    }
+  }
+);
+
+/**
+ * ============================================================
+ * MODIFY MY APPOINTMENT
+ * ============================================================
+ *
+ * PUT /api/client-auth/me/appointments/:id
+ *
+ * Un client connecté peut modifier :
+ * - le service
+ * - le coiffeur
+ * - la date
+ * - l'heure
+ *
+ * RÈGLES (identiques à la création — voir services/booking.ts
+ * et services/availability.ts, entièrement réutilisées ici) :
+ *
+ * - le service entier doit se terminer avant la fermeture
+ *   (21:00 en semaine, 22:00 le week-end) ;
+ * - le backend refait TOUJOURS toute la validation, quoi que
+ *   le frontend ait proposé ;
+ * - l'ancienne réservation est exclue lors de la vérification
+ *   de conflit ;
+ * - le statut confirmed/pending est recalculé automatiquement,
+ *   il n'est jamais choisi par le client ;
+ * - une notification admin est créée avec l'ancienne et la
+ *   nouvelle valeur.
+ *
+ * SÉCURITÉ :
+ * Le rendez-vous doit appartenir au client connecté. Le
+ * propriétaire vient uniquement du token (req.clientId),
+ * jamais d'une valeur envoyée par le frontend.
+ */
+
+const updateMyAppointmentSchema = z.object({
+  staffId: z
+    .coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+
+  serviceId: z
+    .coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+
+  date: z.string().optional(),
+
+  time: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .optional(),
+});
+
+router.put(
+  "/me/appointments/:id",
+  requireClient,
+  (req: ClientAuthedRequest, res) => {
+    try {
+      const clientId = req.clientId;
+
+      const appointmentId = String(
+        req.params.id ?? ""
+      ).trim();
+
+      if (!clientId) {
+        return res.status(401).json({
+          error: "UNAUTHORIZED",
+          message:
+            "Authentification client requise.",
+        });
+      }
+
+      if (!appointmentId) {
+        return res.status(400).json({
+          error: "INVALID_APPOINTMENT",
+          message:
+            "Réservation invalide.",
+        });
+      }
+
+      // ---------------------------------------------------------
+      // RÉSERVATION EXISTANTE
+      //
+      // Le propriétaire est vérifié directement dans la requête
+      // SQL (client_id = ?) : jamais de clientId envoyé par le
+      // frontend pour déterminer l'accès.
+      // ---------------------------------------------------------
+
+      const existing = db
+        .prepare(
+          `
+          SELECT *
+          FROM appointments
+          WHERE id = ?
+            AND client_id = ?
+          LIMIT 1
+          `
+        )
+        .get(
+          appointmentId,
+          clientId
+        ) as Appointment | undefined;
+
+      if (!existing) {
+        return res.status(404).json({
+          error: "APPOINTMENT_NOT_FOUND",
+          message:
+            "Réservation introuvable.",
+        });
+      }
+
+      if (
+        existing.status === "cancelled" ||
+        existing.status === "completed"
+      ) {
+        return res.status(400).json({
+          error: "APPOINTMENT_NOT_MODIFIABLE",
+          message:
+            "Cette réservation ne peut plus être modifiée.",
+        });
+      }
+
+      const parsed =
+        updateMyAppointmentSchema.safeParse(
+          req.body
+        );
+
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "INVALID_BODY",
+          message:
+            "Données invalides.",
+        });
+      }
+
+      const input = parsed.data;
+
+      const staffId =
+        input.staffId ?? existing.staff_id;
+
+      const serviceId =
+        input.serviceId ?? existing.service_id;
+
+      const date =
+        input.date ?? existing.date;
+
+      const time =
+        input.time ?? existing.start_time;
+
+      if (!isValidDateStr(date)) {
+        return res.status(400).json({
+          error: "INVALID_DATE",
+          message: "Date invalide.",
+        });
+      }
+
+      if (!serviceId) {
+        return res.status(400).json({
+          error: "SERVICE_NOT_FOUND",
+          message: "Service introuvable.",
+        });
+      }
+
+      // ---------------------------------------------------------
+      // COIFFEUR / SERVICE
+      // ---------------------------------------------------------
+
+      const staff = db
+        .prepare(
+          `
+          SELECT *
+          FROM staff
+          WHERE id = ?
+            AND active = 1
+          `
+        )
+        .get(staffId) as Staff | undefined;
+
+      if (!staff) {
+        return res.status(404).json({
+          error: "STAFF_NOT_FOUND",
+          message: "Coiffeur introuvable.",
+        });
+      }
+
+      const service = db
+        .prepare(
+          `
+          SELECT *
+          FROM services
+          WHERE id = ?
+            AND active = 1
+          `
+        )
+        .get(serviceId) as
+        | ServiceRow
+        | undefined;
+
+      if (!service) {
+        return res.status(404).json({
+          error: "SERVICE_NOT_FOUND",
+          message: "Service introuvable.",
+        });
+      }
+
+      // ---------------------------------------------------------
+      // VALIDATION DES HORAIRES
+      //
+      // Réutilise validateBookingTime, EXACTEMENT la même
+      // fonction que la réservation invité et la modification
+      // admin. Le backend ne fait jamais confiance au frontend :
+      // même si le frontend n'a proposé que des créneaux
+      // valides, tout est revérifié ici.
+      // ---------------------------------------------------------
+
+      const durationMinutes =
+        service.duration_minutes;
+
+      const validation = validateBookingTime(
+        date,
+        time,
+        durationMinutes
+      );
+
+      if (!validation.valid) {
+        const {
+          status,
+          error,
+          message,
+        } = validationErrorResponse(
+          validation.reason,
+          date
+        );
+
+        return res.status(status).json({
+          error,
+          message,
+        });
+      }
+
+      const endTime = toHHMM(validation.end);
+
+      // ---------------------------------------------------------
+      // NOMS ACTUELS (AVANT MODIFICATION) POUR LA NOTIFICATION
+      // ---------------------------------------------------------
+
+      const oldStaff = db
+        .prepare(
+          "SELECT name FROM staff WHERE id = ?"
+        )
+        .get(existing.staff_id) as
+        | { name: string }
+        | undefined;
+
+      const oldService = existing.service_id
+        ? (db
+            .prepare(
+              "SELECT name_fr FROM services WHERE id = ?"
+            )
+            .get(existing.service_id) as
+            | { name_fr: string }
+            | undefined)
+        : undefined;
+
+      try {
+        const run = db.transaction(() => {
+          // -----------------------------------------------------
+          // VÉRIFICATION FINALE DE CONFLIT (DANS LA TRANSACTION)
+          //
+          // Exclut l'ancienne réservation (existing.id) — voir
+          // services/availability.ts::getBusySlotsForStaffDate,
+          // qui accepte déjà un excludeAppointmentId.
+          // -----------------------------------------------------
+
+          const busy = getBusySlotsForStaffDate(
+            staffId,
+            date,
+            existing.id
+          );
+
+          if (
+            hasConflict(
+              validation.start,
+              validation.end,
+              busy
+            )
+          ) {
+            throw new BookingError(
+              "SLOT_UNAVAILABLE",
+              "Ce créneau n'est plus disponible. Merci d'en choisir un autre."
+            );
+          }
+
+          // -----------------------------------------------------
+          // STATUT confirmed / pending
+          // -----------------------------------------------------
+
+          const exceptional = isExceptionalSlot(
+            date,
+            time,
+            durationMinutes
+          );
+
+          const newStatus = exceptional
+            ? "pending"
+            : "confirmed";
+
+          db.prepare(
+            `
+            UPDATE appointments
+            SET
+              staff_id = ?,
+              service_id = ?,
+              date = ?,
+              start_time = ?,
+              end_time = ?,
+              status = ?
+            WHERE id = ?
+              AND client_id = ?
+            `
+          ).run(
+            staffId,
+            serviceId,
+            date,
+            time,
+            endTime,
+            newStatus,
+            existing.id,
+            clientId
+          );
+
+          // -----------------------------------------------------
+          // NOTIFICATION ADMIN
+          //
+          // Contient l'ancienne et la nouvelle valeur, comme
+          // demandé, dans la même transaction que la
+          // modification.
+          // -----------------------------------------------------
+
+          const notificationId = uuidv4();
+
+          const oldLabel = `${
+            oldService?.name_fr ?? "—"
+          } avec ${
+            oldStaff?.name ?? "—"
+          } le ${existing.date} à ${existing.start_time}`;
+
+          const newLabel = `${service.name_fr} avec ${staff.name} le ${date} à ${time}`;
+
+          db.prepare(
+            `
+            INSERT INTO notifications
+            (
+              id,
+              type,
+              appointment_id,
+              title,
+              message,
+              date,
+              start_time,
+              client_name,
+              service_name_fr,
+              staff_name
+            )
+            VALUES (?, 'appointment_updated', ?, ?, ?, ?, ?, ?, ?, ?)
+            `
+          ).run(
+            notificationId,
+            existing.id,
+            "Modification d'une réservation",
+            `${
+              existing.client_name ??
+              "Un client"
+            } a modifié sa réservation : ${oldLabel} → ${newLabel}.`,
+            date,
+            time,
+            existing.client_name,
+            service.name_fr,
+            staff.name
+          );
+        });
+
+        run();
+      } catch (err) {
+        if (err instanceof BookingError) {
+          const status =
+            err.code === "SLOT_UNAVAILABLE"
+              ? 409
+              : 400;
+
+          return res.status(status).json({
+            error: err.code,
+            message: err.message,
+          });
+        }
+
+        if (
+          err instanceof Error &&
+          /UNIQUE constraint failed/i.test(
+            err.message
+          )
+        ) {
+          return res.status(409).json({
+            error: "SLOT_UNAVAILABLE",
+            message:
+              "Ce créneau vient d'être réservé. Merci d'en choisir un autre.",
+          });
+        }
+
+        throw err;
+      }
+
+      const updated = db
+        .prepare(
+          `
+          SELECT
+            a.*,
+
+            s.name_fr AS service_name_fr,
+            s.name_ar AS service_name_ar,
+            s.duration_minutes,
+
+            st.name AS staff_name
+
+          FROM appointments a
+
+          LEFT JOIN services s
+            ON s.id = a.service_id
+
+          LEFT JOIN staff st
+            ON st.id = a.staff_id
+
+          WHERE a.id = ?
+          `
+        )
+        .get(existing.id);
+
+      return res.status(200).json({
+        appointment: updated,
+      });
+    } catch (error) {
+      console.error(
+        "❌ Client appointment update error:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "UPDATE_FAILED",
+        message:
+          "Impossible de modifier la réservation.",
+      });
+    }
+  }
+);
+
+/**
+ * ============================================================
  * CANCEL MY APPOINTMENT
  * ============================================================
  *
@@ -781,13 +1579,25 @@ router.delete(
         .prepare(
           `
           SELECT
-            id,
-            status,
-            date,
-            start_time
-          FROM appointments
-          WHERE id = ?
-            AND client_id = ?
+            a.id,
+            a.status,
+            a.date,
+            a.start_time,
+            a.client_name,
+
+            s.name_fr AS service_name_fr,
+            st.name AS staff_name
+
+          FROM appointments a
+
+          LEFT JOIN services s
+            ON s.id = a.service_id
+
+          LEFT JOIN staff st
+            ON st.id = a.staff_id
+
+          WHERE a.id = ?
+            AND a.client_id = ?
           LIMIT 1
           `
         )
@@ -800,6 +1610,9 @@ router.delete(
             status: string;
             date: string;
             start_time: string;
+            client_name: string | null;
+            service_name_fr: string | null;
+            staff_name: string | null;
           }
         | undefined;
 
@@ -833,6 +1646,58 @@ router.delete(
         appointmentId,
         clientId
       );
+
+      // ---------------------------------------------------------
+      // NOTIFICATION ADMIN
+      //
+      // Comme pour la création et la modification, chaque
+      // annulation client doit être visible côté admin. La
+      // notification ne doit jamais empêcher l'annulation si
+      // son insertion rencontre un problème.
+      // ---------------------------------------------------------
+
+      try {
+        db.prepare(
+          `
+          INSERT INTO notifications
+          (
+            id,
+            type,
+            appointment_id,
+            title,
+            message,
+            date,
+            start_time,
+            client_name,
+            service_name_fr,
+            staff_name
+          )
+          VALUES (?, 'appointment_cancelled', ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        ).run(
+          uuidv4(),
+          appointment.id,
+          "Annulation d'une réservation",
+          `${
+            appointment.client_name ??
+            "Un client"
+          } a annulé sa réservation : ${
+            appointment.service_name_fr ?? "—"
+          } avec ${
+            appointment.staff_name ?? "—"
+          } le ${appointment.date} à ${appointment.start_time}.`,
+          appointment.date,
+          appointment.start_time,
+          appointment.client_name,
+          appointment.service_name_fr,
+          appointment.staff_name
+        );
+      } catch (notificationError) {
+        console.error(
+          "❌ Client cancellation notification error:",
+          notificationError
+        );
+      }
 
       return res.status(200).json({
         success: true,

@@ -212,6 +212,77 @@ export const clientGetAppointments = () =>
     CLIENT_TOKEN_KEY
   );
 
+export const clientGetAppointment = (
+  id: string
+) =>
+  request<{
+    appointment: Appointment;
+  }>(
+    `/client-auth/me/appointments/${encodeURIComponent(
+      id
+    )}`,
+    {},
+    false,
+    CLIENT_TOKEN_KEY
+  );
+
+export const clientGetAppointmentAvailability = (
+  id: string,
+  staffId: number,
+  serviceId: number,
+  date: string
+) =>
+  request<AvailabilityResponse>(
+    `/client-auth/me/appointments/${encodeURIComponent(
+      id
+    )}/availability?staffId=${staffId}&serviceId=${serviceId}&date=${encodeURIComponent(
+      date
+    )}`,
+    {},
+    false,
+    CLIENT_TOKEN_KEY
+  );
+
+export const clientUpdateAppointment = (
+  id: string,
+  payload: {
+    staffId?: number;
+    serviceId?: number;
+    date?: string;
+    time?: string;
+  }
+) =>
+  request<{
+    appointment: Appointment;
+  }>(
+    `/client-auth/me/appointments/${encodeURIComponent(
+      id
+    )}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    false,
+    CLIENT_TOKEN_KEY
+  );
+
+export const clientCancelAppointment = (
+  id: string
+) =>
+  request<{
+    success: boolean;
+    message: string;
+  }>(
+    `/client-auth/me/appointments/${encodeURIComponent(
+      id
+    )}`,
+    {
+      method: "DELETE",
+    },
+    false,
+    CLIENT_TOKEN_KEY
+  );
+
 export const clientUpdateProfile = (payload: {
   name: string;
   phone: string;
