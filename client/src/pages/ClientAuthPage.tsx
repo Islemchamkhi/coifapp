@@ -1,359 +1,560 @@
-import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
-import { useLanguage } from "../i18n/LanguageContext";
 import { useClientAuth } from "../auth/ClientAuthContext";
-import { ApiRequestError } from "../api/client";
+import { useLanguage } from "../i18n/LanguageContext";
+
+type Mode = "login" | "register";
 
 export default function ClientAuthPage() {
-  const { t, dir } = useLanguage();
-
-  const {
-    client,
-    login,
-    register,
-  } = useClientAuth();
-
   const navigate = useNavigate();
-  const location = useLocation();
-  // Message optionnel transmis lors d'une redirection forcée
-  // (ex. compte introuvable côté serveur -> déconnexion auto).
-  const redirectMessage = (location.state as { message?: string } | null)?.message ?? null;
+  const { login, register } = useClientAuth();
+  const { language } = useLanguage();
 
-  const [mode, setMode] =
-    useState<"login" | "register">("login");
+  const [mode, setMode] = useState<Mode>("login");
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-
-  const [identifier, setIdentifier] =
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] =
     useState("");
 
-  const [password, setPassword] =
-    useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const isArabic = language === "ar";
 
-  const [saving, setSaving] =
-    useState(false);
+  const text = {
+    loginTitle: isArabic
+      ? "تسجيل الدخول"
+      : "Connexion",
 
-  useEffect(() => {
-    if (client) {
-      navigate("/account", {
-        replace: true,
-      });
+    registerTitle: isArabic
+      ? "إنشاء حساب"
+      : "Créer un compte",
+
+    name: isArabic
+      ? "الاسم"
+      : "Nom",
+
+    phone: isArabic
+      ? "رقم الهاتف"
+      : "Téléphone",
+
+    email: isArabic
+      ? "البريد الإلكتروني"
+      : "Email",
+
+    optional: isArabic
+      ? "اختياري"
+      : "facultatif",
+
+    password: isArabic
+      ? "كلمة المرور"
+      : "Mot de passe",
+
+    confirmPassword: isArabic
+      ? "تأكيد كلمة المرور"
+      : "Confirmer le mot de passe",
+
+    login: isArabic
+      ? "دخول"
+      : "Se connecter",
+
+    register: isArabic
+      ? "إنشاء الحساب"
+      : "Créer mon compte",
+
+    noAccount: isArabic
+      ? "ليس لديك حساب؟"
+      : "Pas encore de compte ?",
+
+    alreadyAccount: isArabic
+      ? "لديك حساب بالفعل؟"
+      : "Vous avez déjà un compte ?",
+
+    createAccount: isArabic
+      ? "إنشاء حساب"
+      : "Créer un compte",
+
+    connect: isArabic
+      ? "تسجيل الدخول"
+      : "Se connecter",
+
+    back: isArabic
+      ? "العودة للحجز"
+      : "Retour à la réservation",
+
+    passwordMismatch: isArabic
+      ? "كلمتا المرور غير متطابقتين."
+      : "Les mots de passe ne correspondent pas.",
+
+    invalidPassword: isArabic
+      ? "كلمة المرور يجب أن تحتوي على 6 أحرف على الأقل."
+      : "Le mot de passe doit contenir au moins 6 caractères.",
+
+    requiredFields: isArabic
+      ? "يرجى ملء جميع الحقول المطلوبة."
+      : "Veuillez remplir tous les champs obligatoires.",
+
+    invalidEmail: isArabic
+      ? "البريد الإلكتروني غير صالح."
+      : "L'adresse email n'est pas valide.",
+
+    genericError: isArabic
+      ? "حدث خطأ. يرجى المحاولة مرة أخرى."
+      : "Une erreur est survenue. Veuillez réessayer.",
+  };
+
+  /**
+   * ============================================================
+   * EMAIL
+   * ============================================================
+   *
+   * L'email est FACULTATIF.
+   *
+   * Une chaîne vide est donc autorisée.
+   */
+
+  const isValidEmail = (value: string) => {
+    if (!value.trim()) {
+      return true;
     }
-  }, [client, navigate]);
 
-  async function submit(
-    e: React.FormEvent<HTMLFormElement>
-  ) {
-    e.preventDefault();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      value.trim()
+    );
+  };
 
-    setError(null);
+  /**
+   * ============================================================
+   * SUBMIT
+   * ============================================================
+   */
 
-    // Certains navigateurs (Chrome/Edge) remplissent les champs via
-    // leur gestionnaire de mots de passe sans déclencher l'événement
-    // React onChange. Résultat : les champs sont visuellement remplis
-    // mais l'état React (identifier/password/...) reste vide, et le
-    // formulaire est soumis avec des valeurs vides.
-    //
-    // On lit donc les valeurs réellement présentes dans le <form>
-    // via FormData au moment du submit, plutôt que de faire confiance
-    // uniquement à l'état React — c'est la valeur "vraie" que
-    // l'utilisateur voit à l'écran.
-    const formData = new FormData(e.currentTarget);
+  const handleSubmit = async (
+    event: React.FormEvent
+  ) => {
+    event.preventDefault();
 
-    const identifierValue = String(
-      formData.get("identifier") ?? identifier
-    ).trim();
+    setError("");
 
-    const passwordValue = String(
-      formData.get("password") ?? password
-    ).trim();
+    /**
+     * ----------------------------------------------------------
+     * LOGIN
+     * ----------------------------------------------------------
+     */
 
-    const nameValue = String(
-      formData.get("name") ?? name
-    ).trim();
+    if (mode === "login") {
+      if (
+        !phone.trim() ||
+        !password
+      ) {
+        setError(text.requiredFields);
+        return;
+      }
 
-    const phoneValue = String(
-      formData.get("phone") ?? phone
-    ).trim();
+      try {
+        setLoading(true);
 
-    const emailValue = String(
-      formData.get("email") ?? email
-    ).trim();
+        await login(
+          phone.trim(),
+          password
+        );
 
-    if (
-      mode === "register" &&
-      passwordValue.length < 8
-    ) {
-      setError(t.passwordMinLength);
+        navigate("/account");
+      } catch (err: any) {
+        setError(
+          err?.message ||
+            text.genericError
+        );
+      } finally {
+        setLoading(false);
+      }
+
       return;
     }
 
-    setSaving(true);
+    /**
+     * ----------------------------------------------------------
+     * REGISTER
+     * ----------------------------------------------------------
+     */
+
+    if (
+      !name.trim() ||
+      !phone.trim() ||
+      !password
+    ) {
+      setError(text.requiredFields);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError(text.invalidPassword);
+      return;
+    }
+
+    if (
+      password !== confirmPassword
+    ) {
+      setError(text.passwordMismatch);
+      return;
+    }
+
+    /**
+     * EMAIL FACULTATIF
+     *
+     * Si vide :
+     * undefined
+     *
+     * Si rempli :
+     * email normalisé
+     */
+
+    const cleanedEmail =
+      email.trim();
+
+    if (
+      cleanedEmail &&
+      !isValidEmail(cleanedEmail)
+    ) {
+      setError(text.invalidEmail);
+      return;
+    }
 
     try {
-      if (mode === "login") {
-        await login(
-          identifierValue,
-          passwordValue
-        );
-      } else {
-        await register({
-          name: nameValue,
-          phone: phoneValue,
-          email: emailValue,
-          password: passwordValue,
-        });
-      }
+      setLoading(true);
 
-      navigate("/account", {
-        replace: true,
+      await register({
+        name: name.trim(),
+
+        phone: phone.trim(),
+
+        email:
+          cleanedEmail || undefined,
+
+        password,
       });
-    } catch (err) {
+
+      navigate("/account");
+    } catch (err: any) {
       setError(
-        err instanceof ApiRequestError
-          ? err.message
-          : t.errorGeneric
+        err?.message ||
+          text.genericError
       );
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  }
+  };
+
+  /**
+   * ============================================================
+   * CHANGE MODE
+   * ============================================================
+   */
+
+  const switchMode = (
+    newMode: Mode
+  ) => {
+    setMode(newMode);
+    setError("");
+  };
 
   return (
-    <div
-      dir={dir}
-      className="min-h-screen px-4 py-6"
-    >
-      <div className="max-w-md mx-auto">
+    <div className="min-h-screen bg-gray-50 px-4 py-8">
+      <div className="mx-auto w-full max-w-md">
 
+        {/* -------------------------------------------------- */}
         {/* HEADER */}
-        <header className="flex items-center justify-between mb-6">
-          <Link
-            to="/"
-            className="font-semibold text-zinc-100"
-          >
-            {t.brand}
-          </Link>
+        {/* -------------------------------------------------- */}
 
-          <Link
-            to="/"
-            className="text-sm text-zinc-400 hover:text-zinc-100"
-          >
-            {t.continueWithoutAccount}
-          </Link>
-        </header>
-
-        {/* CARD */}
-        <div className="card p-5">
-
-          {redirectMessage && (
-            <p className="text-amber-400 text-sm mb-4 pb-4 border-b border-ink-800">
-              {redirectMessage}
-            </p>
-          )}
-
-          <h1 className="text-xl font-semibold mb-1">
-            {t.clientAccount}
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Rayen Coif
           </h1>
 
-          <p className="text-sm text-zinc-500 mb-5">
-            {t.clientAccountHint}
+          <p className="mt-2 text-sm text-gray-500">
+            {mode === "login"
+              ? text.loginTitle
+              : text.registerTitle}
           </p>
+        </div>
 
-          {/* LOGIN / REGISTER */}
-          <div className="grid grid-cols-2 gap-2 mb-5">
+        {/* -------------------------------------------------- */}
+        {/* CARD */}
+        {/* -------------------------------------------------- */}
+
+        <div className="rounded-2xl bg-white p-6 shadow-sm">
+
+          {/* ------------------------------------------------ */}
+          {/* TABS */}
+          {/* ------------------------------------------------ */}
+
+          <div className="mb-6 grid grid-cols-2 rounded-xl bg-gray-100 p-1">
 
             <button
               type="button"
-              onClick={() => {
-                setMode("login");
-                setError(null);
-              }}
-              className={
-                mode === "login"
-                  ? "btn-primary"
-                  : "btn-secondary"
+              onClick={() =>
+                switchMode("login")
               }
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                mode === "login"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500"
+              }`}
             >
-              {t.login}
+              {text.connect}
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setMode("register");
-                setError(null);
-              }}
-              className={
-                mode === "register"
-                  ? "btn-primary"
-                  : "btn-secondary"
+              onClick={() =>
+                switchMode("register")
               }
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                mode === "register"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500"
+              }`}
             >
-              {t.createAccount}
+              {text.createAccount}
             </button>
 
           </div>
 
+          {/* ------------------------------------------------ */}
+          {/* ERROR */}
+          {/* ------------------------------------------------ */}
+
+          {error && (
+            <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          {/* ------------------------------------------------ */}
           {/* FORM */}
+          {/* ------------------------------------------------ */}
+
           <form
-            onSubmit={submit}
-            className="space-y-3"
+            onSubmit={handleSubmit}
+            className="space-y-4"
           >
 
-            {mode === "register" ? (
-              <>
-                {/* NAME */}
-                <div>
-                  <label className="text-sm text-zinc-400 mb-1 block">
-                    {t.fullName}
-                  </label>
+            {/* ---------------------------------------------- */}
+            {/* NAME - REGISTER ONLY */}
+            {/* ---------------------------------------------- */}
 
-                  <input
-                    className="input-field"
-                    name="name"
-                    value={name}
-                    onChange={(e) =>
-                      setName(e.target.value)
-                    }
-                    required
-                    minLength={2}
-                    maxLength={80}
-                    autoComplete="name"
-                  />
-                </div>
-
-                {/* PHONE */}
-                <div>
-                  <label className="text-sm text-zinc-400 mb-1 block">
-                    {t.phone}
-                  </label>
-
-                  <input
-                    className="input-field"
-                    name="phone"
-                    value={phone}
-                    onChange={(e) =>
-                      setPhone(e.target.value)
-                    }
-                    required
-                    maxLength={30}
-                    inputMode="tel"
-                    autoComplete="tel"
-                  />
-                </div>
-
-                {/* EMAIL */}
-                <div>
-                  <label className="text-sm text-zinc-400 mb-1 block">
-                    {t.email}
-                  </label>
-
-                  <input
-                    className="input-field"
-                    type="email"
-                    name="email"
-                    value={email}
-                    onChange={(e) =>
-                      setEmail(e.target.value)
-                    }
-                    required
-                    maxLength={160}
-                    autoComplete="email"
-                  />
-                </div>
-              </>
-            ) : (
-              /* LOGIN IDENTIFIER */
+            {mode === "register" && (
               <div>
-                <label className="text-sm text-zinc-400 mb-1 block">
-                  {t.emailOrPhone}
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  {text.name}
                 </label>
 
                 <input
-                  className="input-field"
-                  name="identifier"
-                  value={identifier}
-                  onChange={(e) =>
-                    setIdentifier(e.target.value)
+                  type="text"
+                  value={name}
+                  onChange={(event) =>
+                    setName(
+                      event.target.value
+                    )
                   }
-                  required
-                  autoComplete="username"
+                  autoComplete="name"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
+                  placeholder={text.name}
                 />
               </div>
             )}
 
-            {/* PASSWORD */}
+            {/* ---------------------------------------------- */}
+            {/* PHONE */}
+            {/* ---------------------------------------------- */}
+
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">
-                {t.password}
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                {text.phone}
               </label>
 
               <input
-                className="input-field"
-                type="password"
-                name="password"
-                value={password}
-                onChange={(e) =>
-                  setPassword(e.target.value)
+                type="tel"
+                value={phone}
+                onChange={(event) =>
+                  setPhone(
+                    event.target.value
+                  )
                 }
+                autoComplete="tel"
                 required
-                minLength={
-                  mode === "register"
-                    ? 8
-                    : 1
-                }
-                autoComplete={
-                  mode === "register"
-                    ? "new-password"
-                    : "current-password"
-                }
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
+                placeholder={text.phone}
               />
-
-              {mode === "register" && (
-                <p className="text-xs text-zinc-500 mt-1">
-                  {t.passwordHint}
-                </p>
-              )}
             </div>
 
-            {/* ERROR */}
-            {error && (
-              <p className="text-red-400 text-sm">
-                {error}
-              </p>
+            {/* ---------------------------------------------- */}
+            {/* EMAIL - REGISTER ONLY - FACULTATIVE */}
+            {/* ---------------------------------------------- */}
+
+            {mode === "register" && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  {text.email}
+
+                  <span className="ml-2 text-xs font-normal text-gray-400">
+                    ({text.optional})
+                  </span>
+                </label>
+
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) =>
+                    setEmail(
+                      event.target.value
+                    )
+                  }
+                  autoComplete="email"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
+                  placeholder={`${text.email} (${text.optional})`}
+                />
+
+                <p className="mt-1 text-xs text-gray-400">
+                  {isArabic
+                    ? "يمكنك ترك هذا الحقل فارغًا."
+                    : "Vous pouvez laisser ce champ vide."}
+                </p>
+              </div>
             )}
 
+            {/* ---------------------------------------------- */}
+            {/* PASSWORD */}
+            {/* ---------------------------------------------- */}
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                {text.password}
+              </label>
+
+              <input
+                type="password"
+                value={password}
+                onChange={(event) =>
+                  setPassword(
+                    event.target.value
+                  )
+                }
+                autoComplete={
+                  mode === "login"
+                    ? "current-password"
+                    : "new-password"
+                }
+                required
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
+                placeholder={text.password}
+              />
+            </div>
+
+            {/* ---------------------------------------------- */}
+            {/* CONFIRM PASSWORD - REGISTER ONLY */}
+            {/* ---------------------------------------------- */}
+
+            {mode === "register" && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  {text.confirmPassword}
+                </label>
+
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) =>
+                    setConfirmPassword(
+                      event.target.value
+                    )
+                  }
+                  autoComplete="new-password"
+                  required
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-900"
+                  placeholder={
+                    text.confirmPassword
+                  }
+                />
+              </div>
+            )}
+
+            {/* ---------------------------------------------- */}
             {/* SUBMIT */}
+            {/* ---------------------------------------------- */}
+
             <button
-              disabled={saving}
-              className="btn-primary w-full"
               type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-gray-900 px-4 py-3 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving
-                ? t.loading
+              {loading
+                ? "..."
                 : mode === "login"
-                ? t.login
-                : t.createAccount}
+                ? text.login
+                : text.register}
             </button>
 
           </form>
 
-          {/* CONTINUE WITHOUT ACCOUNT */}
+          {/* ------------------------------------------------ */}
+          {/* SWITCH TEXT */}
+          {/* ------------------------------------------------ */}
+
+          <div className="mt-6 text-center text-sm text-gray-500">
+
+            {mode === "login" ? (
+              <>
+                {text.noAccount}{" "}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    switchMode(
+                      "register"
+                    )
+                  }
+                  className="font-semibold text-gray-900 underline"
+                >
+                  {text.createAccount}
+                </button>
+              </>
+            ) : (
+              <>
+                {text.alreadyAccount}{" "}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    switchMode("login")
+                  }
+                  className="font-semibold text-gray-900 underline"
+                >
+                  {text.connect}
+                </button>
+              </>
+            )}
+
+          </div>
+        </div>
+
+        {/* -------------------------------------------------- */}
+        {/* BACK TO BOOKING */}
+        {/* -------------------------------------------------- */}
+
+        <div className="mt-6 text-center">
           <Link
             to="/"
-            className="btn-secondary block text-center mt-3"
+            className="text-sm text-gray-500 underline hover:text-gray-900"
           >
-            {t.continueWithoutAccount}
+            ← {text.back}
           </Link>
-
         </div>
+
       </div>
     </div>
   );

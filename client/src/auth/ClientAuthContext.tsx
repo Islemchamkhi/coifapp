@@ -1,35 +1,82 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { clientGetMe, clientLogin, clientRegister, clientLogout, clientUpdateProfile } from "../api/client";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  clientGetMe,
+  clientLogin,
+  clientRegister,
+  clientLogout,
+  clientUpdateProfile,
+} from "../api/client";
+
 import { ClientAccount } from "../types";
 
 interface ClientAuthContextValue {
   client: ClientAccount | null;
+
   loading: boolean;
-  login: (identifier: string, password: string) => Promise<ClientAccount>;
-  register: (payload: { name: string; phone: string; email: string; password: string }) => Promise<ClientAccount>;
-  updateProfile: (payload: { name: string; phone: string; email: string }) => Promise<ClientAccount>;
+
+  login: (
+    identifier: string,
+    password: string
+  ) => Promise<ClientAccount>;
+
+  register: (payload: {
+    name: string;
+    phone: string;
+    email?: string;
+    password: string;
+  }) => Promise<ClientAccount>;
+
+  updateProfile: (payload: {
+    name: string;
+    phone: string;
+    email: string;
+  }) => Promise<ClientAccount>;
+
   logout: () => void;
+
   refresh: () => Promise<void>;
-  // À appeler quand le serveur répond CLIENT_NOT_FOUND (compte
-  // supprimé côté serveur, ex. après une réinitialisation de la
-  // base). Déconnecte proprement au lieu de laisser l'UI dans un
-  // état incohérent (infos en cache + erreurs partout).
+
   forceLogout: () => void;
 }
 
-const ClientAuthContext = createContext<ClientAuthContextValue | null>(null);
+const ClientAuthContext =
+  createContext<ClientAuthContextValue | null>(null);
 
-export function ClientAuthProvider({ children }: { children: React.ReactNode }) {
-  const [client, setClient] = useState<ClientAccount | null>(null);
+export function ClientAuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [client, setClient] =
+    useState<ClientAccount | null>(null);
+
   const [loading, setLoading] = useState(true);
 
+  /**
+   * ============================================================
+   * REFRESH CLIENT
+   * ============================================================
+   */
+
   const refresh = async () => {
-    if (!localStorage.getItem("rayen_client_token")) {
+    const token = localStorage.getItem(
+      "rayen_client_token"
+    );
+
+    if (!token) {
       setClient(null);
       return;
     }
+
     try {
       const result = await clientGetMe();
+
       setClient(result.client);
     } catch {
       clientLogout();
@@ -37,49 +84,179 @@ export function ClientAuthProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  /**
+   * ============================================================
+   * INITIALISATION
+   * ============================================================
+   */
+
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
+    refresh().finally(() => {
+      setLoading(false);
+    });
   }, []);
 
-  const login = async (identifier: string, password: string) => {
-    const result = await clientLogin(identifier, password);
+  /**
+   * ============================================================
+   * LOGIN
+   * ============================================================
+   */
+
+  const login = async (
+    identifier: string,
+    password: string
+  ): Promise<ClientAccount> => {
+    const result = await clientLogin(
+      identifier.trim(),
+      password
+    );
+
     setClient(result.client);
+
     return result.client;
   };
 
-  const register = async (payload: { name: string; phone: string; email: string; password: string }) => {
-    const result = await clientRegister(payload);
+  /**
+   * ============================================================
+   * REGISTER
+   * ============================================================
+   *
+   * EMAIL FACULTATIF
+   *
+   * Si l'utilisateur ne possède pas d'adresse email,
+   * on n'envoie pas une chaîne vide au serveur.
+   *
+   * Exemple :
+   *
+   * email = "test@gmail.com"
+   *       -> "test@gmail.com"
+   *
+   * email = ""
+   *       -> undefined
+   */
+
+  const register = async (payload: {
+    name: string;
+    phone: string;
+    email?: string;
+    password: string;
+  }): Promise<ClientAccount> => {
+    const cleanedPayload = {
+      name: payload.name.trim(),
+
+      phone: payload.phone.trim(),
+
+      email:
+        payload.email &&
+        payload.email.trim().length > 0
+          ? payload.email.trim().toLowerCase()
+          : undefined,
+
+      password: payload.password,
+    };
+
+    const result =
+      await clientRegister(cleanedPayload);
+
     setClient(result.client);
+
     return result.client;
   };
 
-  const updateProfile = async (payload: { name: string; phone: string; email: string }) => {
-    const result = await clientUpdateProfile(payload);
+  /**
+   * ============================================================
+   * UPDATE PROFILE
+   * ============================================================
+   *
+   * Ici aussi l'email peut être vide.
+   */
+
+  const updateProfile = async (payload: {
+    name: string;
+    phone: string;
+    email: string;
+  }): Promise<ClientAccount> => {
+    const cleanedPayload = {
+      name: payload.name.trim(),
+
+      phone: payload.phone.trim(),
+
+      email:
+        payload.email.trim().length > 0
+          ? payload.email.trim().toLowerCase()
+          : "",
+    };
+
+    const result =
+      await clientUpdateProfile(cleanedPayload);
+
     setClient(result.client);
+
     return result.client;
   };
+
+  /**
+   * ============================================================
+   * LOGOUT
+   * ============================================================
+   */
 
   const logout = () => {
     clientLogout();
     setClient(null);
   };
 
-  // Identique à logout(), exposé sous un nom explicite pour les
-  // appelants qui réagissent à une erreur CLIENT_NOT_FOUND.
+  /**
+   * ============================================================
+   * FORCE LOGOUT
+   * ============================================================
+   *
+   * Utilisé lorsqu'un compte n'existe plus côté serveur.
+   */
+
   const forceLogout = () => {
     clientLogout();
     setClient(null);
   };
 
+  /**
+   * ============================================================
+   * PROVIDER
+   * ============================================================
+   */
+
   return (
-    <ClientAuthContext.Provider value={{ client, loading, login, register, updateProfile, logout, refresh, forceLogout }}>
+    <ClientAuthContext.Provider
+      value={{
+        client,
+        loading,
+        login,
+        register,
+        updateProfile,
+        logout,
+        refresh,
+        forceLogout,
+      }}
+    >
       {children}
     </ClientAuthContext.Provider>
   );
 }
 
+/**
+ * ============================================================
+ * HOOK
+ * ============================================================
+ */
+
 export function useClientAuth() {
   const context = useContext(ClientAuthContext);
-  if (!context) throw new Error("useClientAuth must be used inside ClientAuthProvider");
+
+  if (!context) {
+    throw new Error(
+      "useClientAuth must be used inside ClientAuthProvider"
+    );
+  }
+
   return context;
 }
