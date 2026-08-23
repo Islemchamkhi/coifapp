@@ -30,7 +30,7 @@ export default function ServicesTab() {
     await adminUpdateService(s.id, { duration_minutes });
   }
 
-  async function updatePrice(s: ServiceItem, price: number) {
+  async function updatePrice(s: ServiceItem, price: number | null) {
     setServices((prev) => prev.map((x) => (x.id === s.id ? { ...x, price } : x)));
     await adminUpdateService(s.id, { price });
   }
@@ -86,9 +86,15 @@ export default function ServicesTab() {
                 type="number"
                 min={0}
                 step="0.001"
-                value={s.price}
+                placeholder="—"
+                value={s.price === null || s.price === undefined ? "" : s.price}
                 onChange={(e) => {
-                  const value = Number(e.target.value);
+                  const raw = e.target.value;
+                  if (raw.trim() === "") {
+                    updatePrice(s, null);
+                    return;
+                  }
+                  const value = Number(raw);
                   if (Number.isNaN(value) || value < 0) return;
                   updatePrice(s, value);
                 }}
@@ -151,16 +157,25 @@ function NewServiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [nameFr, setNameFr] = useState("");
   const [nameAr, setNameAr] = useState("");
   const [duration, setDuration] = useState(30);
-  const [price, setPrice] = useState(0);
+  // Prix stocké en string pour distinguer "champ vide" (pas de
+  // prix) de "0" (prix explicite à zéro) : un state number ne le
+  // permettrait pas (Number('') === 0).
+  const [price, setPrice] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (Number.isNaN(price) || price < 0) {
-      setError(t.invalidForm);
-      return;
+    const trimmedPrice = price.trim();
+    let priceValue: number | null = null;
+
+    if (trimmedPrice !== "") {
+      priceValue = Number(trimmedPrice);
+      if (Number.isNaN(priceValue) || priceValue < 0) {
+        setError(t.invalidForm);
+        return;
+      }
     }
 
     setSaving(true);
@@ -170,7 +185,7 @@ function NewServiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         name_fr: nameFr,
         name_ar: nameAr,
         duration_minutes: duration,
-        price,
+        price: priceValue,
       });
       onSaved();
     } catch {
@@ -213,16 +228,16 @@ function NewServiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
           </div>
           <div>
             <label className="text-xs text-zinc-500 mb-1 block">
-              {t.price} ({t.currency})
+              {t.price} ({t.currency}) — optionnel
             </label>
             <input
               type="number"
               className="input-field"
+              placeholder="—"
               value={price}
               min={0}
               step="0.001"
-              onChange={(e) => setPrice(Number(e.target.value))}
-              required
+              onChange={(e) => setPrice(e.target.value)}
             />
           </div>
           {error && <p className="text-red-400 text-sm">{error}</p>}

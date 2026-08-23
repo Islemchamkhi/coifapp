@@ -33,13 +33,15 @@ export default function ServiceSelector({ services, selectedId, onSelect }: Prop
               >
                 {s.duration_minutes} {t.minutes}
               </span>
-              <span
-                className={`pill ${
-                  active ? "bg-gold-500 text-ink-950" : "bg-ink-800 text-zinc-400"
-                }`}
-              >
-                {formatPrice(s.price)} {t.currency}
-              </span>
+              {s.price !== null && s.price !== undefined && (
+                <span
+                  className={`pill ${
+                    active ? "bg-gold-500 text-ink-950" : "bg-ink-800 text-zinc-400"
+                  }`}
+                >
+                  {formatPrice(s.price)} {t.currency}
+                </span>
+              )}
             </div>
           </button>
         );

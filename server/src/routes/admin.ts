@@ -659,6 +659,23 @@ router.get("/services", (_req, res) => {
   res.json(services);
 });
 
+// ---------------------------------------------------------
+// PRIX : optionnel.
+//
+// Un prix "vide" (chaîne vide, null, ou champ absent) doit
+// être stocké comme NULL en base ("aucun prix saisi"), et ne
+// jamais être confondu avec un vrai 0 explicitement saisi par
+// l'admin.
+// ---------------------------------------------------------
+
+const priceValueSchema = z.preprocess(
+  (val) => (val === "" ? null : val),
+  z.union([
+    z.null(),
+    z.coerce.number().min(0).max(1000000),
+  ])
+);
+
 const serviceSchema = z.object({
   name_fr: z
     .string()
@@ -677,11 +694,7 @@ const serviceSchema = z.object({
     .min(5)
     .max(240),
 
-  price: z
-    .coerce
-    .number()
-    .min(0)
-    .max(1000000),
+  price: priceValueSchema.optional(),
 
   active: z
     .coerce
@@ -712,6 +725,10 @@ router.post("/services", (req, res) => {
     active,
   } = parsed.data;
 
+  // Champ absent du body (jamais envoyé) = pas de prix, comme
+  // un champ explicitement vidé.
+  const priceToStore = price === undefined ? null : price;
+
   const result = db
     .prepare(`
       INSERT INTO services (
@@ -727,7 +744,7 @@ router.post("/services", (req, res) => {
       name_fr.trim(),
       name_ar.trim(),
       duration_minutes,
-      price,
+      priceToStore,
       active === false ? 0 : 1
     );
 
@@ -802,7 +819,7 @@ router.put("/services/:id", (req, res) => {
   const price =
     input.price !== undefined
       ? input.price
-      : existing.price ?? 0;
+      : existing.price;
 
   const active =
     input.active !== undefined

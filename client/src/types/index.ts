@@ -9,7 +9,7 @@ export interface ServiceItem {
   name_fr: string;
   name_ar: string;
   duration_minutes: number;
-  price: number;
+  price: number | null;
   active: 0 | 1;
 }
 

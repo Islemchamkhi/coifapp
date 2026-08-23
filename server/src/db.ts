@@ -170,7 +170,7 @@ db.exec(`
     name_fr TEXT NOT NULL,
     name_ar TEXT NOT NULL,
     duration_minutes INTEGER NOT NULL,
-    price REAL NOT NULL DEFAULT 0,
+    price REAL,
     active INTEGER NOT NULL DEFAULT 1
   );
 
@@ -353,8 +353,92 @@ addColumnIfMissing(
 addColumnIfMissing(
   "services",
   "price",
-  "REAL NOT NULL DEFAULT 0"
+  "REAL"
 );
+
+/**
+ * ============================================================
+ * MIGRATION : prix optionnel (NULL = pas de prix)
+ * ============================================================
+ *
+ * IMPORTANT :
+ * La colonne `price` a été créée avec `NOT NULL DEFAULT 0`.
+ * Cela rendait impossible de distinguer "aucun prix saisi" de
+ * "prix explicitement à 0" : les deux cas étaient stockés comme
+ * `0`. SQLite/Turso ne permettent pas de retirer une contrainte
+ * NOT NULL avec un simple ALTER TABLE ; il faut reconstruire la
+ * table avec le nouveau schéma.
+ *
+ * SAFE & IDEMPOTENT :
+ * - Ne s'exécute que si `price` est encore NOT NULL (vérifié via
+ *   PRAGMA table_info). Si c'est déjà nullable, ne fait rien.
+ * - Conserve TOUTES les lignes existantes avec leurs IDs exacts
+ *   (aucune donnée supprimée, aucun rendez-vous affecté : les
+ *   rendez-vous référencent les services par leur id, inchangé).
+ * - Les anciennes valeurs à 0 (jamais saisies explicitement par
+ *   un admin — c'était uniquement la valeur par défaut) deviennent
+ *   NULL, ce qui correspond à leur état réel : "pas de prix".
+ */
+
+function migratePriceToNullable() {
+  const columns = db
+    .prepare("PRAGMA table_info(services)")
+    .all() as { name: string; notnull: number }[];
+
+  const priceColumn = columns.find((c) => c.name === "price");
+
+  if (!priceColumn || priceColumn.notnull === 0) {
+    // Déjà migré (ou colonne absente, gérée par addColumnIfMissing
+    // ci-dessus au prochain redémarrage) : rien à faire.
+    return;
+  }
+
+  console.log(
+    "🔧 Migration: services.price devient une colonne optionnelle (NULL = pas de prix saisi)"
+  );
+
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE services_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name_fr TEXT NOT NULL,
+        name_ar TEXT NOT NULL,
+        duration_minutes INTEGER NOT NULL,
+        price REAL,
+        active INTEGER NOT NULL DEFAULT 1
+      );
+    `);
+
+    db.exec(`
+      INSERT INTO services_new (
+        id, name_fr, name_ar, duration_minutes, price, active
+      )
+      SELECT
+        id,
+        name_fr,
+        name_ar,
+        duration_minutes,
+        CASE WHEN price = 0 THEN NULL ELSE price END,
+        active
+      FROM services;
+    `);
+
+    db.exec(`DROP TABLE services;`);
+    db.exec(`ALTER TABLE services_new RENAME TO services;`);
+  });
+
+  try {
+    migrate();
+  } catch (error) {
+    console.error(
+      "❌ Migration services.price -> nullable a échoué :",
+      error
+    );
+    throw error;
+  }
+}
+
+migratePriceToNullable();
 
 /**
  * ============================================================
@@ -428,37 +512,37 @@ const REQUIRED_SERVICES: {
   name_fr: string;
   name_ar: string;
   duration_minutes: number;
-  price: number;
+  price: number | null;
 }[] = [
   {
     name_fr: "Coupe cheveux",
     name_ar: "قص شعر",
     duration_minutes: 30,
-    price: 0,
+    price: null,
   },
   {
     name_fr: "Coupe cheveux + barbe",
     name_ar: "قص شعر + لحية",
     duration_minutes: 45,
-    price: 0,
+    price: null,
   },
   {
     name_fr: "Autre service",
     name_ar: "خدمة أخرى",
     duration_minutes: 50,
-    price: 0,
+    price: null,
   },
   {
     name_fr: "Coloration",
     name_ar: "صبغة",
     duration_minutes: 60,
-    price: 0,
+    price: null,
   },
   {
     name_fr: "Kératine",
     name_ar: "كيراتين",
     duration_minutes: 90,
-    price: 0,
+    price: null,
   },
 ];
 
