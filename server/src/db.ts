@@ -72,7 +72,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     phone TEXT NOT NULL,
-    email TEXT NOT NULL,
+    email TEXT,
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -82,7 +82,8 @@ db.exec(`
     ON clients(phone);
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_email
-    ON clients(email);
+    ON clients(email)
+    WHERE email IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS appointments (
     id TEXT PRIMARY KEY,
@@ -198,6 +199,135 @@ function addColumnIfMissing(
     );
   }
 }
+
+/**
+ * ------------------------------------------------------------
+ * CLIENTS MIGRATION — EMAIL FACULTATIF
+ * ------------------------------------------------------------
+ *
+ * À l'origine, `clients.email` était obligatoire (NOT NULL +
+ * index UNIQUE classique). Beaucoup de clients n'ont pas
+ * d'adresse email mais ont tous un numéro de téléphone : il
+ * faut donc que l'email devienne facultatif.
+ *
+ * SQLite ne permet pas de retirer une contrainte NOT NULL
+ * avec un simple ALTER TABLE : on reconstruit la table.
+ *
+ * Ne touche jamais aux données existantes autrement qu'en
+ * copiant les mêmes valeurs (les emails déjà enregistrés
+ * restent inchangés) et ne s'exécute qu'une seule fois — les
+ * exécutions suivantes n'ont aucun effet (idempotent).
+ */
+
+function migrateClientsEmailOptional() {
+  const columns = db
+    .prepare(`PRAGMA table_info(clients)`)
+    .all() as {
+    name: string;
+    notnull: number;
+  }[];
+
+  const emailColumn = columns.find(
+    (c) => c.name === "email"
+  );
+
+  if (emailColumn && emailColumn.notnull === 1) {
+    console.log(
+      "🔧 Migration: clients.email devient facultatif"
+    );
+
+    // ------------------------------------------------------------
+    // IMPORTANT — SÉCURITÉ DES CLÉS ÉTRANGÈRES
+    //
+    // On NE renomme JAMAIS la table "clients" existante :
+    // un RENAME TABLE réécrit automatiquement la définition de
+    // clé étrangère de appointments.client_id pour qu'elle
+    // pointe vers le nouveau nom. Si on la droppe ensuite, la
+    // référence reste bloquée sur ce nom disparu et devient
+    // orpheline.
+    //
+    // On construit donc la nouvelle table sous un nom
+    // temporaire, on supprime l'ancienne "clients" (avec les
+    // clés étrangères désactivées, pour ne pas déclencher
+    // ON DELETE SET NULL sur les rendez-vous), puis on renomme
+    // la nouvelle table EN "clients" — les rendez-vous, dont la
+    // définition n'a jamais changé, s'y raccrochent
+    // automatiquement.
+    // ------------------------------------------------------------
+
+    const foreignKeysWereOn =
+      db.pragma("foreign_keys", {
+        simple: true,
+      }) === 1;
+
+    db.pragma("foreign_keys = OFF");
+
+    try {
+      db.exec(`
+        CREATE TABLE clients_email_optional_migration (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL,
+          email TEXT,
+          password_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO clients_email_optional_migration
+          (id, name, phone, email, password_hash, created_at, updated_at)
+        SELECT
+          id, name, phone, NULLIF(TRIM(email), ''), password_hash, created_at, updated_at
+        FROM clients;
+
+        DROP TABLE clients;
+
+        ALTER TABLE clients_email_optional_migration
+          RENAME TO clients;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_phone
+          ON clients(phone);
+      `);
+    } finally {
+      if (foreignKeysWereOn) {
+        db.pragma("foreign_keys = ON");
+      }
+    }
+  }
+
+  // ------------------------------------------------------------
+  // S'assure que l'index unique sur l'email est bien PARTIEL
+  // (ignore les comptes sans email), que la table vienne
+  // d'être migrée ou qu'elle ait déjà été créée par le bloc
+  // CREATE TABLE ci-dessus.
+  // ------------------------------------------------------------
+
+  const indexRow = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_clients_email'`
+    )
+    .get() as { sql: string | null } | undefined;
+
+  const isPartialIndex = Boolean(
+    indexRow?.sql && /WHERE/i.test(indexRow.sql)
+  );
+
+  if (!isPartialIndex) {
+    console.log(
+      "🔧 Migration: index unique clients.email → partiel"
+    );
+
+    db.exec(`
+      DROP INDEX IF EXISTS idx_clients_email;
+
+      CREATE UNIQUE INDEX idx_clients_email
+        ON clients(email)
+        WHERE email IS NOT NULL;
+    `);
+  }
+}
+
+migrateClientsEmailOptional();
 
 /**
  * ------------------------------------------------------------

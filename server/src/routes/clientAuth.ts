@@ -118,7 +118,7 @@ function sanitizeClient(client: {
   id: number;
   name: string;
   phone: string;
-  email: string;
+  email: string | null;
   created_at: string;
   updated_at: string;
 }) {
@@ -126,7 +126,7 @@ function sanitizeClient(client: {
     id: client.id,
     name: client.name,
     phone: client.phone,
-    email: client.email,
+    email: client.email ?? "",
     createdAt: client.created_at,
     updatedAt: client.updated_at,
   };
@@ -156,11 +156,11 @@ router.post("/register", async (req, res) => {
     // VALIDATION
     // ---------------------------------------------------------
 
-    if (!name || !phone || !email || !password) {
+    if (!name || !phone || !password) {
       return res.status(400).json({
         error: "MISSING_FIELDS",
         message:
-          "Nom, téléphone, email et mot de passe sont requis.",
+          "Nom, téléphone et mot de passe sont requis.",
       });
     }
 
@@ -178,7 +178,19 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // -------------------------------------------------------
+    // EMAIL (FACULTATIF)
+    //
+    // Tout le monde n'a pas d'adresse email, mais tout le
+    // monde a un numéro de téléphone. L'email n'est donc
+    // jamais obligatoire ; s'il est fourni, son format est
+    // vérifié et il doit rester unique.
+    // -------------------------------------------------------
+
+    if (
+      email &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
       return res.status(400).json({
         error: "INVALID_EMAIL",
         message: "L'adresse email est invalide.",
@@ -194,26 +206,28 @@ router.post("/register", async (req, res) => {
     }
 
     // ---------------------------------------------------------
-    // EMAIL UNIQUE
+    // EMAIL UNIQUE (SEULEMENT SI FOURNI)
     // ---------------------------------------------------------
 
-    const existingByEmail = db
-      .prepare(
-        `
-        SELECT id
-        FROM clients
-        WHERE email = ?
-        LIMIT 1
-        `
-      )
-      .get(email) as { id: number } | undefined;
+    if (email) {
+      const existingByEmail = db
+        .prepare(
+          `
+          SELECT id
+          FROM clients
+          WHERE email = ?
+          LIMIT 1
+          `
+        )
+        .get(email) as { id: number } | undefined;
 
-    if (existingByEmail) {
-      return res.status(409).json({
-        error: "EMAIL_ALREADY_EXISTS",
-        message:
-          "Un compte existe déjà avec cette adresse email.",
-      });
+      if (existingByEmail) {
+        return res.status(409).json({
+          error: "EMAIL_ALREADY_EXISTS",
+          message:
+            "Un compte existe déjà avec cette adresse email.",
+        });
+      }
     }
 
     // ---------------------------------------------------------
@@ -265,7 +279,7 @@ router.post("/register", async (req, res) => {
       .run(
         name,
         phone,
-        email,
+        email || null,
         passwordHash
       );
 
@@ -330,7 +344,7 @@ router.post("/register", async (req, res) => {
           id: number;
           name: string;
           phone: string;
-          email: string;
+          email: string | null;
           created_at: string;
           updated_at: string;
         }
@@ -439,7 +453,7 @@ router.post("/login", async (req, res) => {
           id: number;
           name: string;
           phone: string;
-          email: string;
+          email: string | null;
           password_hash: string;
           created_at: string;
           updated_at: string;
@@ -589,11 +603,11 @@ router.put(
       const phone = normalizePhone(req.body?.phone);
       const email = normalizeEmail(req.body?.email);
 
-      if (!name || !phone || !email) {
+      if (!name || !phone) {
         return res.status(400).json({
           error: "MISSING_FIELDS",
           message:
-            "Nom, téléphone et email sont requis.",
+            "Nom et téléphone sont requis.",
         });
       }
 
@@ -612,7 +626,14 @@ router.put(
         });
       }
 
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      // -------------------------------------------------------
+      // EMAIL (FACULTATIF)
+      // -------------------------------------------------------
+
+      if (
+        email &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      ) {
         return res.status(400).json({
           error: "INVALID_EMAIL",
           message:
@@ -621,30 +642,32 @@ router.put(
       }
 
       // -------------------------------------------------------
-      // EMAIL UNIQUE
+      // EMAIL UNIQUE (SEULEMENT SI FOURNI)
       // -------------------------------------------------------
 
-      const existingByEmail = db
-        .prepare(
-          `
-          SELECT id
-          FROM clients
-          WHERE email = ?
-            AND id != ?
-          LIMIT 1
-          `
-        )
-        .get(
-          email,
-          clientId
-        ) as { id: number } | undefined;
+      if (email) {
+        const existingByEmail = db
+          .prepare(
+            `
+            SELECT id
+            FROM clients
+            WHERE email = ?
+              AND id != ?
+            LIMIT 1
+            `
+          )
+          .get(
+            email,
+            clientId
+          ) as { id: number } | undefined;
 
-      if (existingByEmail) {
-        return res.status(409).json({
-          error: "EMAIL_ALREADY_EXISTS",
-          message:
-            "Un compte existe déjà avec cette adresse email.",
-        });
+        if (existingByEmail) {
+          return res.status(409).json({
+            error: "EMAIL_ALREADY_EXISTS",
+            message:
+              "Un compte existe déjà avec cette adresse email.",
+          });
+        }
       }
 
       // -------------------------------------------------------
@@ -691,7 +714,7 @@ router.put(
       ).run(
         name,
         phone,
-        email,
+        email || null,
         clientId
       );
 
@@ -715,7 +738,7 @@ router.put(
             id: number;
             name: string;
             phone: string;
-            email: string;
+            email: string | null;
             created_at: string;
             updated_at: string;
           }
