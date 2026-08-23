@@ -51,6 +51,12 @@ function sanitizeClient(client: {
  * ============================================================
  *
  * POST /api/client-auth/register
+ *
+ * Crée un compte client.
+ *
+ * IMPORTANT :
+ * Chaque nouveau compte créé génère également une
+ * notification visible dans l'espace administrateur.
  */
 router.post("/register", async (req, res) => {
   try {
@@ -58,6 +64,10 @@ router.post("/register", async (req, res) => {
     const phone = normalizePhone(req.body?.phone);
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password ?? "");
+
+    // ---------------------------------------------------------
+    // VALIDATION
+    // ---------------------------------------------------------
 
     if (!name || !phone || !email || !password) {
       return res.status(400).json({
@@ -96,6 +106,10 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    // ---------------------------------------------------------
+    // EMAIL UNIQUE
+    // ---------------------------------------------------------
+
     const existingByEmail = db
       .prepare(
         `
@@ -114,6 +128,10 @@ router.post("/register", async (req, res) => {
           "Un compte existe déjà avec cette adresse email.",
       });
     }
+
+    // ---------------------------------------------------------
+    // PHONE UNIQUE
+    // ---------------------------------------------------------
 
     const existingByPhone = db
       .prepare(
@@ -134,7 +152,15 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    // ---------------------------------------------------------
+    // HASH PASSWORD
+    // ---------------------------------------------------------
+
     const passwordHash = await bcrypt.hash(password, 12);
+
+    // ---------------------------------------------------------
+    // CREATE CLIENT
+    // ---------------------------------------------------------
 
     const result = db
       .prepare(
@@ -158,6 +184,45 @@ router.post("/register", async (req, res) => {
 
     const clientId = Number(result.lastInsertRowid);
 
+    // ---------------------------------------------------------
+    // NOTIFICATION ADMIN
+    // ---------------------------------------------------------
+    //
+    // Chaque nouveau compte client crée une notification
+    // dans l'espace administrateur.
+    //
+    // La notification ne doit jamais empêcher la création
+    // du compte si son insertion rencontre un problème.
+    // ---------------------------------------------------------
+
+    try {
+      db.prepare(
+        `
+        INSERT INTO notifications
+        (
+          type,
+          title,
+          message,
+          created_at
+        )
+        VALUES (?, ?, ?, datetime('now'))
+        `
+      ).run(
+        "client_registered",
+        "Nouveau compte client",
+        `${name} vient de créer un compte client.`
+      );
+    } catch (notificationError) {
+      console.error(
+        "❌ Client registration notification error:",
+        notificationError
+      );
+    }
+
+    // ---------------------------------------------------------
+    // GET CREATED CLIENT
+    // ---------------------------------------------------------
+
     const client = db
       .prepare(
         `
@@ -170,6 +235,7 @@ router.post("/register", async (req, res) => {
           updated_at
         FROM clients
         WHERE id = ?
+        LIMIT 1
         `
       )
       .get(clientId) as
@@ -190,6 +256,10 @@ router.post("/register", async (req, res) => {
           "Impossible de récupérer le compte créé.",
       });
     }
+
+    // ---------------------------------------------------------
+    // CREATE CLIENT TOKEN
+    // ---------------------------------------------------------
 
     const token = signClientToken(client.id);
 
@@ -228,20 +298,20 @@ router.post("/register", async (req, res) => {
  * ============================================================
  *
  * POST /api/client-auth/login
+ *
+ * Connexion avec email OU téléphone.
  */
 router.post("/login", async (req, res) => {
   try {
-    // Le frontend envoie { identifier, password } — "identifier"
-    // pouvant être soit un email, soit un numéro de téléphone
-    // (le champ affiché est "Email ou téléphone"). On accepte
-    // aussi "email" pour compatibilité avec d'anciens clients.
     const identifierRaw = String(
       req.body?.identifier ??
         req.body?.email ??
         ""
     ).trim();
 
-    const password = String(req.body?.password ?? "");
+    const password = String(
+      req.body?.password ?? ""
+    );
 
     if (!identifierRaw || !password) {
       return res.status(400).json({
@@ -251,8 +321,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const identifierEmail = normalizeEmail(identifierRaw);
-    const identifierPhone = normalizePhone(identifierRaw);
+    const identifierEmail =
+      normalizeEmail(identifierRaw);
+
+    const identifierPhone =
+      normalizePhone(identifierRaw);
 
     const client = db
       .prepare(
@@ -271,7 +344,10 @@ router.post("/login", async (req, res) => {
         LIMIT 1
         `
       )
-      .get(identifierEmail, identifierPhone) as
+      .get(
+        identifierEmail,
+        identifierPhone
+      ) as
       | {
           id: number;
           name: string;
@@ -444,16 +520,22 @@ router.put(
       if (phone.length < 6) {
         return res.status(400).json({
           error: "INVALID_PHONE",
-          message: "Le numéro de téléphone est invalide.",
+          message:
+            "Le numéro de téléphone est invalide.",
         });
       }
 
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({
           error: "INVALID_EMAIL",
-          message: "L'adresse email est invalide.",
+          message:
+            "L'adresse email est invalide.",
         });
       }
+
+      // -------------------------------------------------------
+      // EMAIL UNIQUE
+      // -------------------------------------------------------
 
       const existingByEmail = db
         .prepare(
@@ -465,7 +547,10 @@ router.put(
           LIMIT 1
           `
         )
-        .get(email, clientId) as { id: number } | undefined;
+        .get(
+          email,
+          clientId
+        ) as { id: number } | undefined;
 
       if (existingByEmail) {
         return res.status(409).json({
@@ -474,6 +559,10 @@ router.put(
             "Un compte existe déjà avec cette adresse email.",
         });
       }
+
+      // -------------------------------------------------------
+      // PHONE UNIQUE
+      // -------------------------------------------------------
 
       const existingByPhone = db
         .prepare(
@@ -485,7 +574,10 @@ router.put(
           LIMIT 1
           `
         )
-        .get(phone, clientId) as { id: number } | undefined;
+        .get(
+          phone,
+          clientId
+        ) as { id: number } | undefined;
 
       if (existingByPhone) {
         return res.status(409).json({
@@ -494,6 +586,10 @@ router.put(
             "Un compte existe déjà avec ce numéro de téléphone.",
         });
       }
+
+      // -------------------------------------------------------
+      // UPDATE
+      // -------------------------------------------------------
 
       db.prepare(
         `
@@ -505,7 +601,12 @@ router.put(
           updated_at = datetime('now')
         WHERE id = ?
         `
-      ).run(name, phone, email, clientId);
+      ).run(
+        name,
+        phone,
+        email,
+        clientId
+      );
 
       const client = db
         .prepare(
@@ -552,7 +653,9 @@ router.put(
 
       if (
         error instanceof Error &&
-        /UNIQUE constraint failed/i.test(error.message)
+        /UNIQUE constraint failed/i.test(
+          error.message
+        )
       ) {
         return res.status(409).json({
           error: "CLIENT_ALREADY_EXISTS",
@@ -652,8 +755,11 @@ router.delete(
   (req: ClientAuthedRequest, res) => {
     try {
       const clientId = req.clientId;
+
       const appointmentId =
-        String(req.params.id ?? "").trim();
+        String(
+          req.params.id ?? ""
+        ).trim();
 
       if (!clientId) {
         return res.status(401).json({
@@ -706,10 +812,8 @@ router.delete(
       }
 
       if (
-        appointment.status ===
-          "cancelled" ||
-        appointment.status ===
-          "completed"
+        appointment.status === "cancelled" ||
+        appointment.status === "completed"
       ) {
         return res.status(400).json({
           error: "APPOINTMENT_NOT_CANCELLABLE",

@@ -935,87 +935,384 @@ router.put(
 // =========================================================
 // CLIENTS
 // =========================================================
+//
+// IMPORTANT :
+// La liste admin vient maintenant de la table `clients`.
+//
+// Ainsi, TOUS les comptes créés par les clients apparaissent
+// dans l'administration, même s'ils n'ont encore aucune
+// réservation.
+//
+// Les anciens clients qui ont réservé sans compte restent
+// également visibles grâce à UNION.
+// =========================================================
 
 router.get("/clients", (req, res) => {
-  const search =
-    typeof req.query.search === "string"
-      ? `%${req.query.search}%`
-      : "%";
+  try {
+    const search =
+      typeof req.query.search === "string"
+        ? req.query.search.trim()
+        : "";
 
-  const clients = db
-    .prepare(
-      `
-      SELECT
-        client_phone,
-        client_name,
+    const searchPattern = `%${search}%`;
 
-        COUNT(*) AS total_appointments,
+    // -------------------------------------------------------
+    // CLIENTS AVEC COMPTE
+    // -------------------------------------------------------
+    //
+    // On part de la table clients.
+    //
+    // LEFT JOIN appointments permet d'avoir le client même
+    // s'il n'a encore aucune réservation.
+    //
+    const accountClients = db
+      .prepare(
+        `
+        SELECT
+          c.id AS client_id,
 
-        MIN(
-          date || ' ' || start_time
-        ) AS first_visit,
+          c.name AS client_name,
+          c.phone AS client_phone,
+          c.email AS client_email,
 
-        MAX(
-          date || ' ' || start_time
-        ) AS last_visit,
+          c.created_at AS account_created_at,
+          c.updated_at AS account_updated_at,
 
-        SUM(
-          CASE
-            WHEN status = 'cancelled'
-            THEN 1
-            ELSE 0
-          END
-        ) AS cancellations
+          COUNT(a.id) AS total_appointments,
 
-      FROM appointments
+          MIN(
+            CASE
+              WHEN a.id IS NOT NULL
+              THEN a.date || ' ' || a.start_time
+            END
+          ) AS first_visit,
 
-      WHERE
-        client_phone IS NOT NULL
-        AND (
-          client_name LIKE ?
-          OR client_phone LIKE ?
-        )
+          MAX(
+            CASE
+              WHEN a.id IS NOT NULL
+              THEN a.date || ' ' || a.start_time
+            END
+          ) AS last_visit,
 
-      GROUP BY client_phone
+          SUM(
+            CASE
+              WHEN a.status = 'cancelled'
+              THEN 1
+              ELSE 0
+            END
+          ) AS cancellations
 
-      ORDER BY last_visit DESC
-      `
-    )
-    .all(search, search);
+        FROM clients c
 
-  res.json(clients);
+        LEFT JOIN appointments a
+          ON a.client_id = c.id
+
+        WHERE
+          (
+            ? = ''
+            OR c.name LIKE ?
+            OR c.phone LIKE ?
+            OR c.email LIKE ?
+          )
+
+        GROUP BY
+          c.id,
+          c.name,
+          c.phone,
+          c.email,
+          c.created_at,
+          c.updated_at
+
+        ORDER BY
+          c.created_at DESC
+        `
+      )
+      .all(
+        search,
+        searchPattern,
+        searchPattern,
+        searchPattern
+      );
+
+    // -------------------------------------------------------
+    // ANCIENS CLIENTS SANS COMPTE
+    // -------------------------------------------------------
+    //
+    // On conserve les personnes ayant réservé avant le système
+    // de compte client.
+    //
+    // Elles n'ont pas de client_id.
+    //
+    const legacyClients = db
+      .prepare(
+        `
+        SELECT
+          NULL AS client_id,
+
+          MAX(a.client_name) AS client_name,
+          a.client_phone AS client_phone,
+          NULL AS client_email,
+
+          NULL AS account_created_at,
+          NULL AS account_updated_at,
+
+          COUNT(*) AS total_appointments,
+
+          MIN(
+            a.date || ' ' || a.start_time
+          ) AS first_visit,
+
+          MAX(
+            a.date || ' ' || a.start_time
+          ) AS last_visit,
+
+          SUM(
+            CASE
+              WHEN a.status = 'cancelled'
+              THEN 1
+              ELSE 0
+            END
+          ) AS cancellations
+
+        FROM appointments a
+
+        WHERE
+          a.client_id IS NULL
+          AND a.client_phone IS NOT NULL
+          AND a.client_phone != ''
+
+          AND (
+            ? = ''
+            OR a.client_name LIKE ?
+            OR a.client_phone LIKE ?
+          )
+
+        GROUP BY
+          a.client_phone
+
+        ORDER BY
+          last_visit DESC
+        `
+      )
+      .all(
+        search,
+        searchPattern,
+        searchPattern
+      );
+
+    // -------------------------------------------------------
+    // COMBINAISON
+    // -------------------------------------------------------
+
+    const clients = [
+      ...accountClients.map((client: any) => ({
+        ...client,
+        has_account: true,
+      })),
+
+      ...legacyClients.map((client: any) => ({
+        ...client,
+        has_account: false,
+      })),
+    ];
+
+    // Les comptes sont prioritaires.
+    // Ensuite on trie par dernière activité.
+    clients.sort((a: any, b: any) => {
+      const aDate =
+        a.last_visit ||
+        a.account_created_at ||
+        "";
+
+      const bDate =
+        b.last_visit ||
+        b.account_created_at ||
+        "";
+
+      return String(bDate).localeCompare(
+        String(aDate)
+      );
+    });
+
+    return res.json(clients);
+  } catch (error) {
+    console.error(
+      "❌ Admin clients error:",
+      error
+    );
+
+    return res.status(500).json({
+      error: "CLIENTS_FAILED",
+      message:
+        "Impossible de récupérer les clients.",
+    });
+  }
 });
+
+// =========================================================
+// CLIENT ACCOUNT DETAILS
+// =========================================================
+//
+// GET /api/admin/clients/account/:id
+//
+// Permet à l'admin de consulter directement un compte client.
+// =========================================================
+
+router.get(
+  "/clients/account/:id",
+  (req, res) => {
+    try {
+      const clientId = Number(req.params.id);
+
+      if (
+        !Number.isInteger(clientId) ||
+        clientId <= 0
+      ) {
+        return res.status(400).json({
+          error: "INVALID_CLIENT_ID",
+          message: "Identifiant client invalide.",
+        });
+      }
+
+      const client = db
+        .prepare(
+          `
+          SELECT
+            id,
+            name,
+            phone,
+            email,
+            created_at,
+            updated_at
+          FROM clients
+          WHERE id = ?
+          LIMIT 1
+          `
+        )
+        .get(clientId);
+
+      if (!client) {
+        return res.status(404).json({
+          error: "CLIENT_NOT_FOUND",
+          message: "Compte client introuvable.",
+        });
+      }
+
+      const appointments = db
+        .prepare(
+          `
+          SELECT
+            a.*,
+
+            s.name_fr AS service_name_fr,
+            s.name_ar AS service_name_ar,
+            s.duration_minutes AS service_duration,
+
+            st.name AS staff_name
+
+          FROM appointments a
+
+          LEFT JOIN services s
+            ON s.id = a.service_id
+
+          LEFT JOIN staff st
+            ON st.id = a.staff_id
+
+          WHERE a.client_id = ?
+
+          ORDER BY
+            a.date DESC,
+            a.start_time DESC
+          `
+        )
+        .all(clientId);
+
+      return res.json({
+        client,
+        appointments,
+      });
+    } catch (error) {
+      console.error(
+        "❌ Admin client account details error:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "CLIENT_DETAILS_FAILED",
+        message:
+          "Impossible de récupérer le compte client.",
+      });
+    }
+  }
+);
+
+// =========================================================
+// CLIENT APPOINTMENTS BY PHONE
+// =========================================================
+//
+// Cette route reste compatible avec ton frontend actuel.
+//
+// GET /api/admin/clients/:phone/appointments
+// =========================================================
 
 router.get(
   "/clients/:phone/appointments",
   (req, res) => {
-    const rows = db
-      .prepare(
-        `
-        SELECT
-          a.*,
-          s.name_fr AS service_name_fr,
-          s.duration_minutes AS service_duration,
-          st.name AS staff_name
+    try {
+      const phone = String(
+        req.params.phone ?? ""
+      ).trim();
 
-        FROM appointments a
+      if (!phone) {
+        return res.status(400).json({
+          error: "INVALID_PHONE",
+          message:
+            "Numéro de téléphone invalide.",
+        });
+      }
 
-        LEFT JOIN services s
-          ON s.id = a.service_id
+      const rows = db
+        .prepare(
+          `
+          SELECT
+            a.*,
 
-        LEFT JOIN staff st
-          ON st.id = a.staff_id
+            s.name_fr AS service_name_fr,
+            s.name_ar AS service_name_ar,
+            s.duration_minutes AS service_duration,
 
-        WHERE a.client_phone = ?
+            st.name AS staff_name
 
-        ORDER BY
-          a.date DESC,
-          a.start_time DESC
-        `
-      )
-      .all(req.params.phone);
+          FROM appointments a
 
-    res.json(rows);
+          LEFT JOIN services s
+            ON s.id = a.service_id
+
+          LEFT JOIN staff st
+            ON st.id = a.staff_id
+
+          WHERE a.client_phone = ?
+
+          ORDER BY
+            a.date DESC,
+            a.start_time DESC
+          `
+        )
+        .all(phone);
+
+      return res.json(rows);
+    } catch (error) {
+      console.error(
+        "❌ Admin client appointments error:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "CLIENT_APPOINTMENTS_FAILED",
+        message:
+          "Impossible de récupérer l'historique du client.",
+      });
+    }
   }
 );
 
