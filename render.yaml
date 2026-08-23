@@ -3,10 +3,11 @@ services:
     name: rayen-coif
     runtime: node
 
-    # IMPORTANT :
-    # Persistent Disk incompatible avec Free.
-    # Utiliser un plan payant.
-    plan: starter
+    # La base de données ne vit plus sur le disque de ce
+    # service : elle est hébergée chez Turso (cloud). Plus
+    # besoin de disque persistant ici — ce qui tombe bien,
+    # puisque le plan Free de Render n'en supporte pas.
+    plan: free
 
     branch: main
 
@@ -32,11 +33,11 @@ services:
       - key: JWT_SECRET
         sync: false
 
-      # SQLite sera stockée sur le Persistent Disk.
-      - key: DB_PATH
-        value: /var/data/salon.db
+      # Base de données Turso (cloud, SQLite-compatible).
+      # Valeurs à définir manuellement dans Render :
+      # Dashboard → ce service → Environment.
+      - key: TURSO_DATABASE_URL
+        sync: false
 
-    disk:
-      name: rayen-coif-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: TURSO_AUTH_TOKEN
+        sync: false

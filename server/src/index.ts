@@ -12,7 +12,6 @@ import clientAuthRoutes from "./routes/clientAuth.js";
 
 import {
   db,
-  dbPath,
 } from "./db.js";
 
 /**
@@ -64,7 +63,8 @@ app.use("/api/client-auth", clientAuthRoutes);
  * Cette route permet de vérifier :
  *
  * - que le serveur fonctionne ;
- * - quel fichier SQLite est utilisé ;
+ * - qu'il est bien connecté à Turso (et pas à une base locale
+ *   de secours) ;
  * - combien de réservations existent ;
  * - quelle est la plus ancienne réservation.
  */
@@ -96,8 +96,9 @@ app.get("/api/health", (_req, res) => {
       };
 
     // Comptage des comptes clients enregistrés — utile pour
-    // vérifier directement, sans deviner, si la table `clients`
-    // survit bien aux redémarrages (persistance réelle du disque).
+    // vérifier directement, sans deviner, que la table
+    // `clients` survit bien aux redémarrages (persistance
+    // réelle sur Turso, et non un fichier local recréé vide).
     const clientsCount = db
       .prepare(
         "SELECT COUNT(*) AS c FROM clients"
@@ -116,7 +117,10 @@ app.get("/api/health", (_req, res) => {
         new Date().toISOString(),
 
       database: {
-        path: dbPath,
+        provider: "turso",
+
+        tursoUrlConfigured:
+          Boolean(process.env.TURSO_DATABASE_URL),
 
         appointmentsCount:
           count.c,
@@ -129,13 +133,6 @@ app.get("/api/health", (_req, res) => {
 
         newestAppointmentDate:
           newest.d,
-
-        dbPathConfigured:
-          Boolean(process.env.DB_PATH),
-
-        persistentPath:
-          process.env.DB_PATH ===
-          "/var/data/salon.db",
       },
     });
   } catch (error) {
@@ -151,7 +148,7 @@ app.get("/api/health", (_req, res) => {
         "La base de données n'est pas accessible.",
 
       database: {
-        path: dbPath,
+        provider: "turso",
       },
     });
   }
@@ -227,7 +224,7 @@ app.listen(
     );
 
     console.log(
-      `🗄️ SQLite : ${dbPath}`
+      `🗄️ Base de données : Turso`
     );
   }
 );

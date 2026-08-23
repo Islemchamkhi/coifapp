@@ -1,55 +1,161 @@
-import Database from "better-sqlite3";
-import path from "node:path";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import Database from "libsql";
 
 /**
  * ============================================================
- * DATABASE PATH
+ * CONNEXION TURSO (libSQL cloud)
  * ============================================================
+ *
+ * Le projet n'utilise plus de fichier SQLite local en
+ * production : la base de données vit désormais chez Turso
+ * (cloud, SQLite-compatible, persistante).
+ *
+ * Pourquoi ce changement :
+ * Render Free ne fournit pas de disque persistant — le
+ * fichier SQLite local était donc effacé à chaque redémarrage
+ * / redéploiement, ce qui faisait "disparaître" les comptes
+ * clients et les rendez-vous.
+ *
+ * IMPORTANT (sécurité / fiabilité) :
+ * Si TURSO_DATABASE_URL ou TURSO_AUTH_TOKEN manquent, le
+ * serveur s'arrête avec une erreur explicite plutôt que de
+ * retomber silencieusement sur une base locale vide — une
+ * base vide qui "marche" sans prévenir serait bien pire qu'un
+ * crash au démarrage.
  */
 
-const defaultDbPath = path.join(
-  __dirname,
-  "..",
-  "data",
-  "salon.db"
-);
-
-export const dbPath = path.resolve(
-  process.env.DB_PATH || defaultDbPath
-);
-
-fs.mkdirSync(path.dirname(dbPath), {
-  recursive: true,
-});
+const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL;
+const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN;
 
 console.log("==============================================");
-console.log("🗄️ DATABASE");
+console.log("🗄️ DATABASE (Turso)");
 console.log("==============================================");
-console.log(`📁 DB path: ${dbPath}`);
 
-if (process.env.DB_PATH) {
-  console.log("✅ DB_PATH configuré");
-} else {
-  console.log("⚠️ DB_PATH non configuré");
-  console.log("   Utilisation du chemin local par défaut.");
+if (!TURSO_DATABASE_URL || !TURSO_AUTH_TOKEN) {
+  console.error(
+    "❌ TURSO_DATABASE_URL et/ou TURSO_AUTH_TOKEN manquant(s)."
+  );
+  console.error(
+    "   Le serveur refuse de démarrer plutôt que de créer"
+  );
+  console.error(
+    "   silencieusement une base de données vide."
+  );
+  console.error("==============================================");
+
+  throw new Error(
+    "TURSO_DATABASE_URL et TURSO_AUTH_TOKEN doivent être définis dans les variables d'environnement."
+  );
 }
 
+console.log(`📡 URL Turso : ${TURSO_DATABASE_URL}`);
+console.log("✅ TURSO_DATABASE_URL configuré");
+console.log("✅ TURSO_AUTH_TOKEN configuré");
 console.log("==============================================");
 
-export const db = new Database(dbPath);
+// ------------------------------------------------------------
+// `authToken` fonctionne bien à l'exécution (voir la doc
+// officielle libsql-js), mais manque encore dans les
+// définitions TypeScript fournies par le package à l'heure où
+// ce code est écrit. Le cast ci-dessous contourne uniquement
+// ce trou de typage, sans rien changer au comportement réel.
+// ------------------------------------------------------------
 
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-db.pragma("busy_timeout = 5000");
+export const db = new Database(TURSO_DATABASE_URL, {
+  authToken: TURSO_AUTH_TOKEN,
+} as unknown as Database.Options);
+
+// ------------------------------------------------------------
+// PARITÉ DE COMPORTEMENT AVEC better-sqlite3
+//
+// Contrairement à better-sqlite3, ce driver ajoute un champ
+// `_metadata` (durée de la requête) sur les résultats de
+// `.get()`, et un champ `duration` sur les résultats de
+// `.run()`. Comme plusieurs routes existantes renvoient un
+// résultat de `.get()` directement au client
+// (`res.json(appointment)`, etc.), ce champ technique se
+// retrouverait sinon dans les réponses de l'API.
+//
+// On l'enlève une seule fois ici, pour TOUTES les requêtes,
+// plutôt que de modifier chaque route une par une.
+// ------------------------------------------------------------
+
+const originalPrepare = db.prepare.bind(db);
+
+db.prepare = ((sql: string) => {
+  const stmt = originalPrepare(sql);
+
+  const originalGet = stmt.get.bind(stmt);
+  const originalRun = stmt.run.bind(stmt);
+
+  stmt.get = (...args: unknown[]) => {
+    const row = originalGet(...(args as []));
+
+    if (
+      row &&
+      typeof row === "object" &&
+      "_metadata" in row
+    ) {
+      const {
+        _metadata,
+        ...rest
+      } = row as Record<string, unknown>;
+
+      return rest;
+    }
+
+    return row;
+  };
+
+  stmt.run = (...args: unknown[]) => {
+    const result = originalRun(...(args as []));
+
+    if (
+      result &&
+      typeof result === "object" &&
+      "duration" in result
+    ) {
+      const {
+        duration,
+        ...rest
+      } = result as unknown as Record<
+        string,
+        unknown
+      >;
+
+      return rest as unknown as typeof result;
+    }
+
+    return result;
+  };
+
+  return stmt;
+}) as typeof db.prepare;
+
+// L'intégrité référentielle (ON DELETE SET NULL, etc.) doit
+// rester active. `.pragma()` n'est pas supporté par ce
+// driver ; on passe donc par du SQL brut via `.exec()`. Ne
+// bloque jamais le démarrage si le pragma échoue à distance :
+// c'est une protection supplémentaire, pas une exigence dure.
+try {
+  db.exec("PRAGMA foreign_keys = ON;");
+} catch (error) {
+  console.warn(
+    "⚠️ Impossible d'activer PRAGMA foreign_keys sur Turso :",
+    error
+  );
+}
 
 /**
  * ============================================================
  * TABLES
  * ============================================================
+ *
+ * Base neuve chez Turso : le schéma ci-dessous est directement
+ * la version FINALE (déjà avec email facultatif sur clients,
+ * déjà avec toutes les colonnes de appointments). Comme il n'y
+ * a pas d'anciennes lignes à transformer, on n'a plus besoin
+ * de la migration de reconstruction de table qui existait pour
+ * l'ancienne base SQLite locale.
  */
 
 db.exec(`
@@ -126,6 +232,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_appt_phone
     ON appointments(client_phone);
 
+  CREATE INDEX IF NOT EXISTS idx_appt_client_id
+    ON appointments(client_id);
+
   CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
     ON appointments(staff_id, date, start_time)
     WHERE status IN ('confirmed', 'blocked');
@@ -174,6 +283,12 @@ db.exec(`
  * ============================================================
  * SAFE MIGRATIONS
  * ============================================================
+ *
+ * Conservées pour la même raison qu'avant : si Turso est un
+ * jour réinitialisé à partir d'un ancien dump, ou si de
+ * nouvelles colonnes sont ajoutées plus tard, ces migrations
+ * additives restent utiles et sans danger (elles ne font rien
+ * si la colonne existe déjà).
  */
 
 function addColumnIfMissing(
@@ -181,159 +296,35 @@ function addColumnIfMissing(
   column: string,
   definition: string
 ) {
-  const columns = db
-    .prepare(`PRAGMA table_info(${table})`)
-    .all() as { name: string }[];
+  try {
+    const columns = db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all() as { name: string }[];
 
-  const exists = columns.some(
-    (item) => item.name === column
-  );
-
-  if (!exists) {
-    console.log(
-      `🔧 Migration: ajout de ${table}.${column}`
+    const exists = columns.some(
+      (item) => item.name === column
     );
 
-    db.exec(
-      `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`
-    );
-  }
-}
+    if (!exists) {
+      console.log(
+        `🔧 Migration: ajout de ${table}.${column}`
+      );
 
-/**
- * ------------------------------------------------------------
- * CLIENTS MIGRATION — EMAIL FACULTATIF
- * ------------------------------------------------------------
- *
- * À l'origine, `clients.email` était obligatoire (NOT NULL +
- * index UNIQUE classique). Beaucoup de clients n'ont pas
- * d'adresse email mais ont tous un numéro de téléphone : il
- * faut donc que l'email devienne facultatif.
- *
- * SQLite ne permet pas de retirer une contrainte NOT NULL
- * avec un simple ALTER TABLE : on reconstruit la table.
- *
- * Ne touche jamais aux données existantes autrement qu'en
- * copiant les mêmes valeurs (les emails déjà enregistrés
- * restent inchangés) et ne s'exécute qu'une seule fois — les
- * exécutions suivantes n'ont aucun effet (idempotent).
- */
-
-function migrateClientsEmailOptional() {
-  const columns = db
-    .prepare(`PRAGMA table_info(clients)`)
-    .all() as {
-    name: string;
-    notnull: number;
-  }[];
-
-  const emailColumn = columns.find(
-    (c) => c.name === "email"
-  );
-
-  if (emailColumn && emailColumn.notnull === 1) {
-    console.log(
-      "🔧 Migration: clients.email devient facultatif"
-    );
-
-    // ------------------------------------------------------------
-    // IMPORTANT — SÉCURITÉ DES CLÉS ÉTRANGÈRES
-    //
-    // On NE renomme JAMAIS la table "clients" existante :
-    // un RENAME TABLE réécrit automatiquement la définition de
-    // clé étrangère de appointments.client_id pour qu'elle
-    // pointe vers le nouveau nom. Si on la droppe ensuite, la
-    // référence reste bloquée sur ce nom disparu et devient
-    // orpheline.
-    //
-    // On construit donc la nouvelle table sous un nom
-    // temporaire, on supprime l'ancienne "clients" (avec les
-    // clés étrangères désactivées, pour ne pas déclencher
-    // ON DELETE SET NULL sur les rendez-vous), puis on renomme
-    // la nouvelle table EN "clients" — les rendez-vous, dont la
-    // définition n'a jamais changé, s'y raccrochent
-    // automatiquement.
-    // ------------------------------------------------------------
-
-    const foreignKeysWereOn =
-      db.pragma("foreign_keys", {
-        simple: true,
-      }) === 1;
-
-    db.pragma("foreign_keys = OFF");
-
-    try {
-      db.exec(`
-        CREATE TABLE clients_email_optional_migration (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          phone TEXT NOT NULL,
-          email TEXT,
-          password_hash TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        INSERT INTO clients_email_optional_migration
-          (id, name, phone, email, password_hash, created_at, updated_at)
-        SELECT
-          id, name, phone, NULLIF(TRIM(email), ''), password_hash, created_at, updated_at
-        FROM clients;
-
-        DROP TABLE clients;
-
-        ALTER TABLE clients_email_optional_migration
-          RENAME TO clients;
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_phone
-          ON clients(phone);
-      `);
-    } finally {
-      if (foreignKeysWereOn) {
-        db.pragma("foreign_keys = ON");
-      }
+      db.exec(
+        `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`
+      );
     }
-  }
-
-  // ------------------------------------------------------------
-  // S'assure que l'index unique sur l'email est bien PARTIEL
-  // (ignore les comptes sans email), que la table vienne
-  // d'être migrée ou qu'elle ait déjà été créée par le bloc
-  // CREATE TABLE ci-dessus.
-  // ------------------------------------------------------------
-
-  const indexRow = db
-    .prepare(
-      `SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_clients_email'`
-    )
-    .get() as { sql: string | null } | undefined;
-
-  const isPartialIndex = Boolean(
-    indexRow?.sql && /WHERE/i.test(indexRow.sql)
-  );
-
-  if (!isPartialIndex) {
-    console.log(
-      "🔧 Migration: index unique clients.email → partiel"
+  } catch (error) {
+    // Le schéma créé ci-dessus contient déjà toutes ces
+    // colonnes sur une base Turso neuve : si PRAGMA
+    // table_info n'est pas disponible à distance, ce n'est
+    // pas bloquant.
+    console.warn(
+      `⚠️ Vérification de ${table}.${column} ignorée :`,
+      error
     );
-
-    db.exec(`
-      DROP INDEX IF EXISTS idx_clients_email;
-
-      CREATE UNIQUE INDEX idx_clients_email
-        ON clients(email)
-        WHERE email IS NOT NULL;
-    `);
   }
 }
-
-migrateClientsEmailOptional();
-
-/**
- * ------------------------------------------------------------
- * APPOINTMENTS MIGRATIONS
- * ------------------------------------------------------------
- */
 
 addColumnIfMissing(
   "appointments",
@@ -358,19 +349,6 @@ addColumnIfMissing(
   "delay_minutes",
   "INTEGER NOT NULL DEFAULT 0"
 );
-
-db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_appt_client_id
-    ON appointments(client_id);
-`);
-
-/**
- * ------------------------------------------------------------
- * SERVICES MIGRATION
- * ------------------------------------------------------------
- *
- * Ajoute le prix aux anciennes bases.
- */
 
 addColumnIfMissing(
   "services",
@@ -532,6 +510,6 @@ if (bookingSettingsCount.c === 0) {
   `).run();
 }
 
-console.log("✅ SQLite initialisée avec succès.");
+console.log("✅ Turso connecté et schéma vérifié avec succès.");
 
 export default db;
