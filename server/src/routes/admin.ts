@@ -642,13 +642,21 @@ router.delete(
 // =========================================================
 
 router.get("/services", (_req, res) => {
-  res.json(
-    db
-      .prepare(
-        "SELECT * FROM services ORDER BY id ASC"
-      )
-      .all()
-  );
+  const services = db
+    .prepare(`
+      SELECT
+        id,
+        name_fr,
+        name_ar,
+        duration_minutes,
+        price,
+        active
+      FROM services
+      ORDER BY id ASC
+    `)
+    .all();
+
+  res.json(services);
 });
 
 const serviceSchema = z.object({
@@ -669,20 +677,31 @@ const serviceSchema = z.object({
     .min(5)
     .max(240),
 
+  price: z
+    .coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1000000),
+
   active: z
     .coerce
     .boolean()
     .optional(),
 });
 
+// ---------------------------------------------------------
+// CREATE SERVICE
+// ---------------------------------------------------------
+
 router.post("/services", (req, res) => {
-  const parsed =
-    serviceSchema.safeParse(req.body);
+  const parsed = serviceSchema.safeParse(req.body);
 
   if (!parsed.success) {
     return res.status(400).json({
       error: "INVALID_BODY",
-      message: "Données invalides.",
+      message: "Données du service invalides.",
+      details: parsed.error.flatten(),
     });
   }
 
@@ -690,105 +709,143 @@ router.post("/services", (req, res) => {
     name_fr,
     name_ar,
     duration_minutes,
+    price,
     active,
   } = parsed.data;
 
   const result = db
-    .prepare(
-      `
+    .prepare(`
       INSERT INTO services (
         name_fr,
         name_ar,
         duration_minutes,
+        price,
         active
       )
-      VALUES (?, ?, ?, ?)
-      `
-    )
+      VALUES (?, ?, ?, ?, ?)
+    `)
     .run(
-      name_fr,
-      name_ar,
+      name_fr.trim(),
+      name_ar.trim(),
       duration_minutes,
+      price,
       active === false ? 0 : 1
     );
 
-  res.status(201).json(
-    db
-      .prepare(
-        "SELECT * FROM services WHERE id = ?"
-      )
-      .get(result.lastInsertRowid)
-  );
+  const service = db
+    .prepare(`
+      SELECT
+        id,
+        name_fr,
+        name_ar,
+        duration_minutes,
+        price,
+        active
+      FROM services
+      WHERE id = ?
+    `)
+    .get(result.lastInsertRowid);
+
+  return res.status(201).json(service);
 });
 
-router.put(
-  "/services/:id",
-  (req, res) => {
-    const existing = db
-      .prepare(
-        "SELECT * FROM services WHERE id = ?"
-      )
-      .get(req.params.id) as
-      | ServiceRow
-      | undefined;
+// ---------------------------------------------------------
+// UPDATE SERVICE
+// ---------------------------------------------------------
 
-    if (!existing) {
-      return res.status(404).json({
-        error: "NOT_FOUND",
-        message: "Service introuvable.",
-      });
-    }
-
-    const parsed =
-      serviceSchema
-        .partial()
-        .safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({
-        error: "INVALID_BODY",
-        message: "Données invalides.",
-      });
-    }
-
-    const input = parsed.data;
-
-    db.prepare(
-      `
-      UPDATE services SET
-
-        name_fr = ?,
-        name_ar = ?,
-        duration_minutes = ?,
-        active = ?
-
+router.put("/services/:id", (req, res) => {
+  const existing = db
+    .prepare(`
+      SELECT *
+      FROM services
       WHERE id = ?
-      `
-    ).run(
-      input.name_fr ?? existing.name_fr,
-      input.name_ar ?? existing.name_ar,
-      input.duration_minutes ??
-        existing.duration_minutes,
+    `)
+    .get(req.params.id) as
+    | ServiceRow
+    | undefined;
 
-      input.active !== undefined
-        ? input.active
-          ? 1
-          : 0
-        : existing.active,
-
-      existing.id
-    );
-
-    res.json(
-      db
-        .prepare(
-          "SELECT * FROM services WHERE id = ?"
-        )
-        .get(existing.id)
-    );
+  if (!existing) {
+    return res.status(404).json({
+      error: "NOT_FOUND",
+      message: "Service introuvable.",
+    });
   }
-);
 
+  const parsed = serviceSchema
+    .partial()
+    .safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "INVALID_BODY",
+      message: "Données du service invalides.",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  const input = parsed.data;
+
+  const nameFr =
+    input.name_fr !== undefined
+      ? input.name_fr.trim()
+      : existing.name_fr;
+
+  const nameAr =
+    input.name_ar !== undefined
+      ? input.name_ar.trim()
+      : existing.name_ar;
+
+  const duration =
+    input.duration_minutes !== undefined
+      ? input.duration_minutes
+      : existing.duration_minutes;
+
+  const price =
+    input.price !== undefined
+      ? input.price
+      : existing.price ?? 0;
+
+  const active =
+    input.active !== undefined
+      ? input.active
+        ? 1
+        : 0
+      : existing.active;
+
+  db.prepare(`
+    UPDATE services
+    SET
+      name_fr = ?,
+      name_ar = ?,
+      duration_minutes = ?,
+      price = ?,
+      active = ?
+    WHERE id = ?
+  `).run(
+    nameFr,
+    nameAr,
+    duration,
+    price,
+    active,
+    existing.id
+  );
+
+  const updated = db
+    .prepare(`
+      SELECT
+        id,
+        name_fr,
+        name_ar,
+        duration_minutes,
+        price,
+        active
+      FROM services
+      WHERE id = ?
+    `)
+    .get(existing.id);
+
+  return res.json(updated);
+});
 // =========================================================
 // STAFF
 // =========================================================

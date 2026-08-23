@@ -9,16 +9,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * ============================================================
  * DATABASE PATH
  * ============================================================
- *
- * LOCAL :
- *   server/data/salon.db
- *
- * PRODUCTION :
- *   DB_PATH=/var/data/salon.db
- *
- * IMPORTANT :
- * En production, /var/data doit être le mountPath d'un
- * Persistent Disk Render.
  */
 
 const defaultDbPath = path.join(
@@ -32,13 +22,12 @@ export const dbPath = path.resolve(
   process.env.DB_PATH || defaultDbPath
 );
 
-// Crée le dossier si nécessaire
 fs.mkdirSync(path.dirname(dbPath), {
   recursive: true,
 });
 
 console.log("==============================================");
-console.log("🗄️  DATABASE");
+console.log("🗄️ DATABASE");
 console.log("==============================================");
 console.log(`📁 DB path: ${dbPath}`);
 
@@ -51,10 +40,8 @@ if (process.env.DB_PATH) {
 
 console.log("==============================================");
 
-// Connexion SQLite
 export const db = new Database(dbPath);
 
-// SQLite configuration
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 db.pragma("busy_timeout = 5000");
@@ -77,6 +64,7 @@ db.exec(`
     name_fr TEXT NOT NULL,
     name_ar TEXT NOT NULL,
     duration_minutes INTEGER NOT NULL,
+    price INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1
   );
 
@@ -90,8 +78,11 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_phone
+    ON clients(phone);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_email
+    ON clients(email);
 
   CREATE TABLE IF NOT EXISTS appointments (
     id TEXT PRIMARY KEY,
@@ -103,21 +94,21 @@ db.exec(`
       REFERENCES services(id),
 
     date TEXT NOT NULL,
-
     start_time TEXT NOT NULL,
     end_time TEXT NOT NULL,
 
     client_name TEXT,
     client_phone TEXT,
 
-    client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    client_id INTEGER
+      REFERENCES clients(id)
+      ON DELETE SET NULL,
 
     status TEXT NOT NULL DEFAULT 'confirmed',
 
     notes TEXT,
 
     arrived_at TEXT,
-
     completed_at TEXT,
 
     delay_minutes INTEGER NOT NULL DEFAULT 0,
@@ -134,21 +125,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_appt_phone
     ON appointments(client_phone);
 
-  /**
-   * Empêche uniquement deux rendez-vous ACTIFS
-   * d'avoir exactement le même début pour le même coiffeur.
-   *
-   * La vérification du chevauchement réel doit également
-   * être faite dans le service de disponibilité / création
-   * de réservation.
-   */
   CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_appt_slot
     ON appointments(staff_id, date, start_time)
     WHERE status IN ('confirmed', 'blocked');
 
-  /**
-   * Notifications
-   */
   CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
 
@@ -176,33 +156,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_notifications_read_created
     ON notifications(read_at, created_at);
 
-  /**
-   * ============================================================
-   * PARAMÈTRES DE RÉSERVATION (par salon)
-   * ============================================================
-   *
-   * Ligne unique (id = 1) tant que l'application ne gère qu'un
-   * seul salon. La structure est volontairement une table à part
-   * (plutôt qu'un fichier de config) pour permettre plus tard
-   * d'ajouter une colonne salon_id et une ligne par salon sans
-   * rien casser.
-   *
-   * booking_mode :
-   *   'interval' -> le client choisit parmi une grille de
-   *                 créneaux espacés de booking_interval_minutes.
-   *   'flexible' -> le client choisit une heure précise (HH:mm)
-   *                 via un sélecteur d'heure.
-   *
-   * Dans les deux modes, le backend valide la disponibilité sur
-   * la période réelle [heure choisie, heure choisie + durée du
-   * service], jamais sur une grille arrondie.
-   */
   CREATE TABLE IF NOT EXISTS booking_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
+
     booking_mode TEXT NOT NULL DEFAULT 'interval'
       CHECK (booking_mode IN ('interval', 'flexible')),
+
     booking_interval_minutes INTEGER NOT NULL DEFAULT 5
       CHECK (booking_interval_minutes IN (5, 10, 15, 30)),
+
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
@@ -211,9 +173,6 @@ db.exec(`
  * ============================================================
  * SAFE MIGRATIONS
  * ============================================================
- *
- * Ces migrations ajoutent uniquement les colonnes manquantes.
- * Aucune donnée existante n'est supprimée.
  */
 
 function addColumnIfMissing(
@@ -240,16 +199,17 @@ function addColumnIfMissing(
   }
 }
 
+/**
+ * ------------------------------------------------------------
+ * APPOINTMENTS MIGRATIONS
+ * ------------------------------------------------------------
+ */
+
 addColumnIfMissing(
   "appointments",
   "client_id",
   "INTEGER REFERENCES clients(id) ON DELETE SET NULL"
 );
-
-db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_appt_client_id
-    ON appointments(client_id);
-`);
 
 addColumnIfMissing(
   "appointments",
@@ -269,13 +229,29 @@ addColumnIfMissing(
   "INTEGER NOT NULL DEFAULT 0"
 );
 
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_appt_client_id
+    ON appointments(client_id);
+`);
+
+/**
+ * ------------------------------------------------------------
+ * SERVICES MIGRATION
+ * ------------------------------------------------------------
+ *
+ * Ajoute le prix aux anciennes bases.
+ */
+
+addColumnIfMissing(
+  "services",
+  "price",
+  "INTEGER NOT NULL DEFAULT 0"
+);
+
 /**
  * ============================================================
  * SEED STAFF
  * ============================================================
- *
- * Les seeds ne sont exécutés que si la table est vide.
- * Les données existantes ne sont jamais supprimées.
  */
 
 const staffCount = db
@@ -301,6 +277,13 @@ if (staffCount.c === 0) {
  * ============================================================
  * SEED SERVICES
  * ============================================================
+ *
+ * IMPORTANT :
+ * Le seed ne remplace JAMAIS les modifications faites par
+ * l'admin.
+ *
+ * Les nouveaux services sont ajoutés uniquement si la table
+ * est vide.
  */
 
 const serviceCount = db
@@ -315,28 +298,46 @@ if (serviceCount.c === 0) {
       name_fr,
       name_ar,
       duration_minutes,
+      price,
       active
     )
-    VALUES (?, ?, ?, 1)
+    VALUES (?, ?, ?, ?, 1)
   `);
 
   const insertMany = db.transaction(() => {
     insertService.run(
       "Coupe cheveux",
       "قص شعر",
-      20
+      30,
+      0
     );
 
     insertService.run(
       "Coupe cheveux + barbe",
       "قص شعر + لحية",
-      30
+      45,
+      0
     );
 
     insertService.run(
       "Autre service",
       "خدمة أخرى",
-      30
+      50,
+      0
+    );
+
+    insertService.run(
+      "Coloration",
+      "صبغة",
+      60,
+      0
+    );
+
+    insertService.run(
+      "Kératine",
+      "كيراتين",
+      90,
+      0
     );
   });
 
@@ -345,12 +346,41 @@ if (serviceCount.c === 0) {
 
 /**
  * ============================================================
- * SEED PARAMÈTRES DE RÉSERVATION
+ * MIGRATION DES ANCIENS SERVICES
  * ============================================================
  *
- * Valeurs par défaut = comportement actuel de l'application
- * (grille toutes les 5 minutes), donc aucun changement visible
- * tant que l'admin ne modifie pas ces réglages.
+ * IMPORTANT :
+ * On corrige uniquement les anciennes valeurs par défaut.
+ *
+ * Si l'admin avait déjà changé manuellement une durée,
+ * elle n'est PAS écrasée.
+ */
+
+db.prepare(`
+  UPDATE services
+  SET duration_minutes = 30
+  WHERE name_fr = 'Coupe cheveux'
+    AND duration_minutes = 20
+`).run();
+
+db.prepare(`
+  UPDATE services
+  SET duration_minutes = 45
+  WHERE name_fr = 'Coupe cheveux + barbe'
+    AND duration_minutes = 30
+`).run();
+
+db.prepare(`
+  UPDATE services
+  SET duration_minutes = 50
+  WHERE name_fr = 'Autre service'
+    AND duration_minutes = 30
+`).run();
+
+/**
+ * ============================================================
+ * SEED BOOKING SETTINGS
+ * ============================================================
  */
 
 const bookingSettingsCount = db
@@ -358,14 +388,18 @@ const bookingSettingsCount = db
   .get() as { c: number };
 
 if (bookingSettingsCount.c === 0) {
-  console.log("🌱 Création des paramètres de réservation par défaut...");
+  console.log(
+    "🌱 Création des paramètres de réservation par défaut..."
+  );
 
-  db.prepare(
-    `
-    INSERT INTO booking_settings (id, booking_mode, booking_interval_minutes)
+  db.prepare(`
+    INSERT INTO booking_settings (
+      id,
+      booking_mode,
+      booking_interval_minutes
+    )
     VALUES (1, 'interval', 5)
-    `
-  ).run();
+  `).run();
 }
 
 console.log("✅ SQLite initialisée avec succès.");
