@@ -407,70 +407,92 @@ for (const staffName of REQUIRED_STAFF) {
  * SEED SERVICES
  * ============================================================
  *
- * IMPORTANT :
- * Le seed ne remplace JAMAIS les modifications faites par
- * l'admin.
+ * IMPORTANT (correction du bug "Coupe cheveux disparu après Turso") :
+ * Même cause que pour le staff : ce bloc ne vérifiait que
+ * `COUNT(*) === 0` sur toute la table `services`. Après le
+ * passage à Turso, la table contenait déjà 4 lignes (tous les
+ * services sauf "Coupe cheveux") au premier démarrage, donc la
+ * condition était fausse dès le départ et "Coupe cheveux" n'a
+ * plus jamais été recréé.
  *
- * Les nouveaux services sont ajoutés uniquement si la table
- * est vide.
+ * Correction : on vérifie l'existence de CHAQUE service requis
+ * individuellement, par son `name_fr`, plutôt que par le nombre
+ * total de lignes. Un service déjà présent n'est jamais recréé
+ * ni dupliqué (et ses éventuelles modifications faites depuis
+ * l'admin ne sont donc jamais écrasées) ; seul un service
+ * manquant est ajouté, avec exactement les mêmes valeurs que
+ * l'ancien système.
  */
 
-const serviceCount = db
-  .prepare("SELECT COUNT(*) AS c FROM services")
-  .get() as { c: number };
+const REQUIRED_SERVICES: {
+  name_fr: string;
+  name_ar: string;
+  duration_minutes: number;
+  price: number;
+}[] = [
+  {
+    name_fr: "Coupe cheveux",
+    name_ar: "قص شعر",
+    duration_minutes: 30,
+    price: 0,
+  },
+  {
+    name_fr: "Coupe cheveux + barbe",
+    name_ar: "قص شعر + لحية",
+    duration_minutes: 45,
+    price: 0,
+  },
+  {
+    name_fr: "Autre service",
+    name_ar: "خدمة أخرى",
+    duration_minutes: 50,
+    price: 0,
+  },
+  {
+    name_fr: "Coloration",
+    name_ar: "صبغة",
+    duration_minutes: 60,
+    price: 0,
+  },
+  {
+    name_fr: "Kératine",
+    name_ar: "كيراتين",
+    duration_minutes: 90,
+    price: 0,
+  },
+];
 
-if (serviceCount.c === 0) {
-  console.log("🌱 Création des services par défaut...");
+const findServiceByNameFr = db.prepare(
+  "SELECT id FROM services WHERE name_fr = ?"
+);
 
-  const insertService = db.prepare(`
-    INSERT INTO services (
-      name_fr,
-      name_ar,
-      duration_minutes,
-      price,
-      active
-    )
-    VALUES (?, ?, ?, ?, 1)
-  `);
+const insertService = db.prepare(`
+  INSERT INTO services (
+    name_fr,
+    name_ar,
+    duration_minutes,
+    price,
+    active
+  )
+  VALUES (?, ?, ?, ?, 1)
+`);
 
-  const insertMany = db.transaction(() => {
-    insertService.run(
-      "Coupe cheveux",
-      "قص شعر",
-      30,
-      0
+for (const service of REQUIRED_SERVICES) {
+  const existing = findServiceByNameFr.get(
+    service.name_fr
+  ) as { id: number } | undefined;
+
+  if (!existing) {
+    console.log(
+      `🌱 Service manquant détecté sur Turso, création de : ${service.name_fr}`
     );
-
     insertService.run(
-      "Coupe cheveux + barbe",
-      "قص شعر + لحية",
-      45,
-      0
+      service.name_fr,
+      service.name_ar,
+      service.duration_minutes,
+      service.price
     );
-
-    insertService.run(
-      "Autre service",
-      "خدمة أخرى",
-      50,
-      0
-    );
-
-    insertService.run(
-      "Coloration",
-      "صبغة",
-      60,
-      0
-    );
-
-    insertService.run(
-      "Kératine",
-      "كيراتين",
-      90,
-      0
-    );
-  });
-
-  insertMany();
+  }
 }
 
 /**
