@@ -117,7 +117,7 @@ db.prepare = ((sql: string) => {
       const {
         duration,
         ...rest
-      } = result as unknown as Record
+      } = result as unknown as Record<
         string,
         unknown
       >;
