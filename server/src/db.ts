@@ -2,25 +2,15 @@ import Database from "libsql";
 
 /**
  * ============================================================
- * CONNEXION TURSO (libSQL cloud)
+ * TURSO / LIBSQL DATABASE
  * ============================================================
  *
- * Le projet n'utilise plus de fichier SQLite local en
- * production : la base de données vit désormais chez Turso
- * (cloud, SQLite-compatible, persistante).
+ * Production database = Turso Cloud.
  *
- * Pourquoi ce changement :
- * Render Free ne fournit pas de disque persistant — le
- * fichier SQLite local était donc effacé à chaque redémarrage
- * / redéploiement, ce qui faisait "disparaître" les comptes
- * clients et les rendez-vous.
- *
- * IMPORTANT (sécurité / fiabilité) :
- * Si TURSO_DATABASE_URL ou TURSO_AUTH_TOKEN manquent, le
- * serveur s'arrête avec une erreur explicite plutôt que de
- * retomber silencieusement sur une base locale vide — une
- * base vide qui "marche" sans prévenir serait bien pire qu'un
- * crash au démarrage.
+ * IMPORTANT:
+ * - aucune base SQLite locale en production
+ * - aucun fallback vers un fichier local
+ * - si les variables Turso manquent, le serveur refuse de démarrer
  */
 
 const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL;
@@ -34,16 +24,15 @@ if (!TURSO_DATABASE_URL || !TURSO_AUTH_TOKEN) {
   console.error(
     "❌ TURSO_DATABASE_URL et/ou TURSO_AUTH_TOKEN manquant(s)."
   );
+
   console.error(
-    "   Le serveur refuse de démarrer plutôt que de créer"
+    "Le serveur refuse de démarrer plutôt que de créer une base locale vide."
   );
-  console.error(
-    "   silencieusement une base de données vide."
-  );
+
   console.error("==============================================");
 
   throw new Error(
-    "TURSO_DATABASE_URL et TURSO_AUTH_TOKEN doivent être définis dans les variables d'environnement."
+    "TURSO_DATABASE_URL et TURSO_AUTH_TOKEN doivent être définis."
   );
 }
 
@@ -52,32 +41,15 @@ console.log("✅ TURSO_DATABASE_URL configuré");
 console.log("✅ TURSO_AUTH_TOKEN configuré");
 console.log("==============================================");
 
-// ------------------------------------------------------------
-// `authToken` fonctionne bien à l'exécution (voir la doc
-// officielle libsql-js), mais manque encore dans les
-// définitions TypeScript fournies par le package à l'heure où
-// ce code est écrit. Le cast ci-dessous contourne uniquement
-// ce trou de typage, sans rien changer au comportement réel.
-// ------------------------------------------------------------
-
 export const db = new Database(TURSO_DATABASE_URL, {
   authToken: TURSO_AUTH_TOKEN,
 } as unknown as Database.Options);
 
-// ------------------------------------------------------------
-// PARITÉ DE COMPORTEMENT AVEC better-sqlite3
-//
-// Contrairement à better-sqlite3, ce driver ajoute un champ
-// `_metadata` (durée de la requête) sur les résultats de
-// `.get()`, et un champ `duration` sur les résultats de
-// `.run()`. Comme plusieurs routes existantes renvoient un
-// résultat de `.get()` directement au client
-// (`res.json(appointment)`, etc.), ce champ technique se
-// retrouverait sinon dans les réponses de l'API.
-//
-// On l'enlève une seule fois ici, pour TOUTES les requêtes,
-// plutôt que de modifier chaque route une par une.
-// ------------------------------------------------------------
+/**
+ * ============================================================
+ * COMPATIBILITÉ AVEC BETTER-SQLITE3
+ * ============================================================
+ */
 
 const originalPrepare = db.prepare.bind(db);
 
@@ -117,10 +89,7 @@ db.prepare = ((sql: string) => {
       const {
         duration,
         ...rest
-      } = result as unknown as Record<
-        string,
-        unknown
-      >;
+      } = result as unknown as Record<string, unknown>;
 
       return rest as unknown as typeof result;
     }
@@ -131,11 +100,12 @@ db.prepare = ((sql: string) => {
   return stmt;
 }) as typeof db.prepare;
 
-// L'intégrité référentielle (ON DELETE SET NULL, etc.) doit
-// rester active. `.pragma()` n'est pas supporté par ce
-// driver ; on passe donc par du SQL brut via `.exec()`. Ne
-// bloque jamais le démarrage si le pragma échoue à distance :
-// c'est une protection supplémentaire, pas une exigence dure.
+/**
+ * ============================================================
+ * FOREIGN KEYS
+ * ============================================================
+ */
+
 try {
   db.exec("PRAGMA foreign_keys = ON;");
 } catch (error) {
@@ -149,13 +119,6 @@ try {
  * ============================================================
  * TABLES
  * ============================================================
- *
- * Base neuve chez Turso : le schéma ci-dessous est directement
- * la version FINALE (déjà avec email facultatif sur clients,
- * déjà avec toutes les colonnes de appointments). Comme il n'y
- * a pas d'anciennes lignes à transformer, on n'a plus besoin
- * de la migration de reconstruction de table qui existait pour
- * l'ancienne base SQLite locale.
  */
 
 db.exec(`
@@ -281,14 +244,8 @@ db.exec(`
 
 /**
  * ============================================================
- * SAFE MIGRATIONS
+ * SAFE ADDITIVE MIGRATIONS
  * ============================================================
- *
- * Conservées pour la même raison qu'avant : si Turso est un
- * jour réinitialisé à partir d'un ancien dump, ou si de
- * nouvelles colonnes sont ajoutées plus tard, ces migrations
- * additives restent utiles et sans danger (elles ne font rien
- * si la colonne existe déjà).
  */
 
 function addColumnIfMissing(
@@ -315,10 +272,6 @@ function addColumnIfMissing(
       );
     }
   } catch (error) {
-    // Le schéma créé ci-dessus contient déjà toutes ces
-    // colonnes sur une base Turso neuve : si PRAGMA
-    // table_info n'est pas disponible à distance, ce n'est
-    // pas bloquant.
     console.warn(
       `⚠️ Vérification de ${table}.${column} ignorée :`,
       error
@@ -358,82 +311,204 @@ addColumnIfMissing(
 
 /**
  * ============================================================
- * MIGRATION : prix optionnel (NULL = pas de prix)
+ * MIGRATION SERVICES.PRICE
  * ============================================================
  *
- * IMPORTANT :
- * La colonne `price` a été créée avec `NOT NULL DEFAULT 0`.
- * Cela rendait impossible de distinguer "aucun prix saisi" de
- * "prix explicitement à 0" : les deux cas étaient stockés comme
- * `0`. SQLite/Turso ne permettent pas de retirer une contrainte
- * NOT NULL avec un simple ALTER TABLE ; il faut reconstruire la
- * table avec le nouveau schéma.
+ * Ancien schéma possible :
  *
- * SAFE & IDEMPOTENT :
- * - Ne s'exécute que si `price` est encore NOT NULL (vérifié via
- *   PRAGMA table_info). Si c'est déjà nullable, ne fait rien.
- * - Conserve TOUTES les lignes existantes avec leurs IDs exacts
- *   (aucune donnée supprimée, aucun rendez-vous affecté : les
- *   rendez-vous référencent les services par leur id, inchangé).
- * - Les anciennes valeurs à 0 (jamais saisies explicitement par
- *   un admin — c'était uniquement la valeur par défaut) deviennent
- *   NULL, ce qui correspond à leur état réel : "pas de prix".
+ * price REAL NOT NULL DEFAULT 0
+ *
+ * Nouveau schéma :
+ *
+ * price REAL
+ *
+ * Donc :
+ *
+ * NULL = aucun prix renseigné
+ * 25   = 25 DT
+ * 30.5 = 30.5 DT
+ *
+ * IMPORTANT :
+ * On ne doit PAS faire DROP TABLE services avec les
+ * foreign keys actives car appointments.service_id référence
+ * services(id).
+ *
+ * On désactive temporairement les foreign keys pendant la
+ * reconstruction de la table.
+ *
+ * Les IDs sont conservés.
+ * Les rendez-vous sont conservés.
  */
 
 function migratePriceToNullable() {
-  const columns = db
-    .prepare("PRAGMA table_info(services)")
-    .all() as { name: string; notnull: number }[];
-
-  const priceColumn = columns.find((c) => c.name === "price");
-
-  if (!priceColumn || priceColumn.notnull === 0) {
-    // Déjà migré (ou colonne absente, gérée par addColumnIfMissing
-    // ci-dessus au prochain redémarrage) : rien à faire.
-    return;
-  }
-
-  console.log(
-    "🔧 Migration: services.price devient une colonne optionnelle (NULL = pas de prix saisi)"
-  );
-
-  const migrate = db.transaction(() => {
-    db.exec(`
-      CREATE TABLE services_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name_fr TEXT NOT NULL,
-        name_ar TEXT NOT NULL,
-        duration_minutes INTEGER NOT NULL,
-        price REAL,
-        active INTEGER NOT NULL DEFAULT 1
-      );
-    `);
-
-    db.exec(`
-      INSERT INTO services_new (
-        id, name_fr, name_ar, duration_minutes, price, active
-      )
-      SELECT
-        id,
-        name_fr,
-        name_ar,
-        duration_minutes,
-        CASE WHEN price = 0 THEN NULL ELSE price END,
-        active
-      FROM services;
-    `);
-
-    db.exec(`DROP TABLE services;`);
-    db.exec(`ALTER TABLE services_new RENAME TO services;`);
-  });
-
   try {
-    migrate();
+    const columns = db
+      .prepare("PRAGMA table_info(services)")
+      .all() as {
+        name: string;
+        notnull: number;
+      }[];
+
+    const priceColumn = columns.find(
+      (column) => column.name === "price"
+    );
+
+    if (!priceColumn) {
+      return;
+    }
+
+    if (priceColumn.notnull === 0) {
+      console.log(
+        "✅ services.price est déjà nullable."
+      );
+      return;
+    }
+
+    console.log(
+      "🔧 Migration services.price -> nullable..."
+    );
+
+    /**
+     * Vérification préalable :
+     * tous les appointments doivent référencer des services
+     * existants ou avoir service_id = NULL.
+     */
+    const invalidReferences = db
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM appointments a
+        LEFT JOIN services s
+          ON s.id = a.service_id
+        WHERE a.service_id IS NOT NULL
+          AND s.id IS NULL
+      `)
+      .get() as { count: number };
+
+    if (invalidReferences.count > 0) {
+      throw new Error(
+        `Impossible de migrer services.price : ${invalidReferences.count} rendez-vous ont un service_id invalide.`
+      );
+    }
+
+    /**
+     * IMPORTANT :
+     * PRAGMA foreign_keys doit être désactivé AVANT
+     * la reconstruction de la table.
+     */
+    db.exec("PRAGMA foreign_keys = OFF;");
+
+    try {
+      db.exec(`
+        CREATE TABLE services_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name_fr TEXT NOT NULL,
+          name_ar TEXT NOT NULL,
+          duration_minutes INTEGER NOT NULL,
+          price REAL,
+          active INTEGER NOT NULL DEFAULT 1
+        );
+      `);
+
+      /**
+       * Conservation exacte des IDs.
+       *
+       * Les anciens 0 deviennent NULL car ils représentaient
+       * l'absence de prix dans l'ancien système.
+       */
+      db.exec(`
+        INSERT INTO services_new (
+          id,
+          name_fr,
+          name_ar,
+          duration_minutes,
+          price,
+          active
+        )
+        SELECT
+          id,
+          name_fr,
+          name_ar,
+          duration_minutes,
+          CASE
+            WHEN price = 0 THEN NULL
+            ELSE price
+          END,
+          active
+        FROM services;
+      `);
+
+      /**
+       * Suppression de l'ancienne table.
+       *
+       * Les foreign keys sont temporairement désactivées.
+       */
+      db.exec(`
+        DROP TABLE services;
+      `);
+
+      db.exec(`
+        ALTER TABLE services_new
+        RENAME TO services;
+      `);
+
+      /**
+       * Vérification finale.
+       */
+      const migratedColumns = db
+        .prepare("PRAGMA table_info(services)")
+        .all() as {
+          name: string;
+          notnull: number;
+        }[];
+
+      const migratedPrice = migratedColumns.find(
+        (column) => column.name === "price"
+      );
+
+      if (!migratedPrice || migratedPrice.notnull !== 0) {
+        throw new Error(
+          "La migration services.price n'a pas rendu la colonne nullable."
+        );
+      }
+
+      console.log(
+        "✅ Migration services.price terminée."
+      );
+    } finally {
+      /**
+       * On réactive les foreign keys même si une erreur
+       * survient pendant la migration.
+       */
+      db.exec("PRAGMA foreign_keys = ON;");
+    }
+
+    /**
+     * Vérification d'intégrité référentielle.
+     */
+    const foreignKeyCheck = db
+      .prepare("PRAGMA foreign_key_check")
+      .all();
+
+    if (foreignKeyCheck.length > 0) {
+      console.error(
+        "❌ PRAGMA foreign_key_check a détecté des problèmes :",
+        foreignKeyCheck
+      );
+
+      throw new Error(
+        "La migration services.price a créé une incohérence de foreign keys."
+      );
+    }
+
+    console.log(
+      "✅ Vérification des foreign keys terminée."
+    );
   } catch (error) {
     console.error(
-      "❌ Migration services.price -> nullable a échoué :",
+      "❌ Migration services.price -> nullable échouée :",
       error
     );
+
     throw error;
   }
 }
@@ -445,25 +520,16 @@ migratePriceToNullable();
  * SEED STAFF
  * ============================================================
  *
- * IMPORTANT (correction du bug "Abdou disparu après Turso") :
- * L'ancienne version de ce bloc ne vérifiait que
- * `COUNT(*) === 0` sur toute la table `staff`. Après le passage
- * à Turso, la table contenait déjà 1 ligne (Rayen) au moment du
- * premier démarrage du serveur sur Turso : la condition
- * `staffCount.c === 0` était donc fausse dès le premier lancement,
- * et Abdou n'a plus jamais été recréé automatiquement, même après
- * de nombreux redéploiements.
+ * IMPORTANT :
+ * On vérifie chaque coiffeur individuellement.
  *
- * Correction : on vérifie désormais l'existence de CHAQUE
- * coiffeur requis individuellement, par son nom, plutôt que de se
- * fier au nombre total de lignes. Un coiffeur déjà présent
- * (Rayen) n'est jamais recréé ni dupliqué ; seul un coiffeur
- * manquant (Abdou) est ajouté, avec exactement les mêmes champs
- * que l'ancien système (name, active = 1). Aucune autre donnée
- * (id, rendez-vous, clients, services) n'est touchée.
+ * Cela permet de restaurer Abdou si absent sans recréer Rayen.
  */
 
-const REQUIRED_STAFF = ["Rayen", "Abdou"];
+const REQUIRED_STAFF = [
+  "Rayen",
+  "Abdou",
+];
 
 const findStaffByName = db.prepare(
   "SELECT id FROM staff WHERE name = ?"
@@ -474,14 +540,15 @@ const insertStaff = db.prepare(
 );
 
 for (const staffName of REQUIRED_STAFF) {
-  const existing = findStaffByName.get(staffName) as
-    | { id: number }
-    | undefined;
+  const existing = findStaffByName.get(
+    staffName
+  ) as { id: number } | undefined;
 
   if (!existing) {
     console.log(
-      `🌱 Coiffeur manquant détecté sur Turso, création de : ${staffName}`
+      `🌱 Coiffeur manquant détecté : ${staffName}`
     );
+
     insertStaff.run(staffName);
   }
 }
@@ -491,21 +558,13 @@ for (const staffName of REQUIRED_STAFF) {
  * SEED SERVICES
  * ============================================================
  *
- * IMPORTANT (correction du bug "Coupe cheveux disparu après Turso") :
- * Même cause que pour le staff : ce bloc ne vérifiait que
- * `COUNT(*) === 0` sur toute la table `services`. Après le
- * passage à Turso, la table contenait déjà 4 lignes (tous les
- * services sauf "Coupe cheveux") au premier démarrage, donc la
- * condition était fausse dès le départ et "Coupe cheveux" n'a
- * plus jamais été recréé.
+ * Les services manquants sont ajoutés individuellement.
  *
- * Correction : on vérifie l'existence de CHAQUE service requis
- * individuellement, par son `name_fr`, plutôt que par le nombre
- * total de lignes. Un service déjà présent n'est jamais recréé
- * ni dupliqué (et ses éventuelles modifications faites depuis
- * l'admin ne sont donc jamais écrasées) ; seul un service
- * manquant est ajouté, avec exactement les mêmes valeurs que
- * l'ancien système.
+ * IMPORTANT :
+ * price = null signifie :
+ * "aucun prix renseigné".
+ *
+ * Aucun service sans prix ne recevra 0 DT.
  */
 
 const REQUIRED_SERVICES: {
@@ -520,24 +579,28 @@ const REQUIRED_SERVICES: {
     duration_minutes: 30,
     price: null,
   },
+
   {
     name_fr: "Coupe cheveux + barbe",
     name_ar: "قص شعر + لحية",
     duration_minutes: 45,
     price: null,
   },
+
   {
     name_fr: "Autre service",
     name_ar: "خدمة أخرى",
     duration_minutes: 50,
     price: null,
   },
+
   {
     name_fr: "Coloration",
     name_ar: "صبغة",
     duration_minutes: 60,
     price: null,
   },
+
   {
     name_fr: "Kératine",
     name_ar: "كيراتين",
@@ -568,8 +631,9 @@ for (const service of REQUIRED_SERVICES) {
 
   if (!existing) {
     console.log(
-      `🌱 Service manquant détecté sur Turso, création de : ${service.name_fr}`
+      `🌱 Service manquant détecté : ${service.name_fr}`
     );
+
     insertService.run(
       service.name_fr,
       service.name_ar,
@@ -581,13 +645,12 @@ for (const service of REQUIRED_SERVICES) {
 
 /**
  * ============================================================
- * MIGRATION DES ANCIENS SERVICES
+ * MIGRATION ANCIENNES DURÉES
  * ============================================================
  *
- * IMPORTANT :
- * On corrige uniquement les anciennes valeurs par défaut.
+ * On corrige uniquement les anciennes valeurs connues.
  *
- * Si l'admin avait déjà changé manuellement une durée,
+ * Si l'admin a déjà modifié une durée vers une autre valeur,
  * elle n'est PAS écrasée.
  */
 
@@ -614,12 +677,14 @@ db.prepare(`
 
 /**
  * ============================================================
- * SEED BOOKING SETTINGS
+ * BOOKING SETTINGS
  * ============================================================
  */
 
 const bookingSettingsCount = db
-  .prepare("SELECT COUNT(*) AS c FROM booking_settings")
+  .prepare(
+    "SELECT COUNT(*) AS c FROM booking_settings"
+  )
   .get() as { c: number };
 
 if (bookingSettingsCount.c === 0) {
@@ -637,6 +702,34 @@ if (bookingSettingsCount.c === 0) {
   `).run();
 }
 
-console.log("✅ Turso connecté et schéma vérifié avec succès.");
+/**
+ * ============================================================
+ * FIN
+ * ============================================================
+ */
+
+console.log(
+  "=============================================="
+);
+
+console.log(
+  "✅ Turso connecté et schéma vérifié avec succès."
+);
+
+console.log(
+  "👨‍💇 Coiffeurs requis : Rayen + Abdou"
+);
+
+console.log(
+  "✂️ Services requis vérifiés."
+);
+
+console.log(
+  "💰 Prix optionnel : NULL = aucun prix."
+);
+
+console.log(
+  "=============================================="
+);
 
 export default db;
